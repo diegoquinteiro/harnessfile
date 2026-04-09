@@ -89,9 +89,9 @@ Source: Meta-review worktree conversation (`fc173c45`)
 ### D16: Add variables with ${VAR:-default}
 **Decision:** Add Docker Compose-style variable substitution. Chosen as the single most critical addition.
 
-### D17: Add data flow AND error handling, remove nothing
-**Decision:** Add data flow (output schema, context selection, parallel merge) and error handling (retry, timeout, on-error) to the spec. Do not cut any existing concepts to compensate.
-**User quote:** "Add both, remove nothing. We need just to ensure defaults are solid so the complexity is hidden from the user until needed."
+### D17: Add data flow AND error handling, remove nothing [redacted by D31, D32, D33]
+~~**Decision:** Add data flow (output schema, context selection, parallel merge) and error handling (retry, timeout, on-error) to the spec. Do not cut any existing concepts to compensate.~~
+**Superseded:** Data flow and error handling remain, but parallel merge was removed (D33) and the parallel pattern was replaced by polymorphic `next` (D31). Triggers and outputs became graph nodes (D32).
 
 ### D18: Drop top-level providers block, use inline references
 **Decision:** Follow GitHub Actions model — declare provider at point of use (`provider: slack/v1` on the step), not in a top-level registry.
@@ -137,6 +137,18 @@ Source: Meta-review worktree conversation (`fc173c45`)
 
 ### D30: Redact superseded decisions
 **Decision:** Superseded decisions get `[redacted by Dxx]` in the title, strikethrough on original text, and a superseded note pointing to the new decision. Preserves history while making the current state clear.
+
+### D31: Unified graph — triggers and outputs are nodes, polymorphic `next`
+**Decision:** Everything is a node in the graph. Triggers are entry nodes (`type: trigger`), outputs are exit nodes (`type: output`). Multiple triggers and outputs are supported. `next` is polymorphic: `next: step` (sequential), `next: [a, b, c]` (parallel fan-out), or omitted (end of path). Fan-in is implicit — a step waits for all incoming edges.
+**Impact:** Removes `type: parallel` as a step type. Removes the top-level `trigger:` block. Pipeline and parallel are no longer named coordination patterns — they emerge from the graph. Coordination patterns reduced to: router, orchestrator, gate, trigger, output.
+
+### D32: Input/output schemas on trigger/output nodes
+**Decision:** Each trigger declares its `output` schema (what data it produces). Each output declares its `input` schema (what data it expects). No top-level input/output — schemas live on the graph nodes. Multiple triggers can produce different shapes.
+**Rationale:** A harness may have multiple entry points (Jira trigger + webhook trigger) with different data shapes. Putting schemas on the nodes keeps them self-describing.
+
+### D33: Fan-in always appends, no merge field
+**Decision:** When multiple steps converge on the same target, outputs are always appended. No `merge` field. If custom merge logic is needed, use an agent step.
+**Rationale:** Fewer concepts. The agent is already capable of merging — no need for the spec to define merge strategies.
 
 ---
 
