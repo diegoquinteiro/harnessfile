@@ -1,0 +1,23 @@
+harnessfile: "0.1"
+
+agents:
+  researcher:
+    model: anthropic/claude-sonnet-4-6
+    instructions: Research the problem space thoroughly.
+
+  writer:
+    model: anthropic/claude-sonnet-4-6
+    instructions: Write a detailed report from the research.
+
+steps:
+  start:
+    type: trigger
+    event: webhook
+    next: research
+
+  research:
+    agent: researcher
+    next: write
+
+  write:
+    agent: writer

@@ -1,0 +1,97 @@
+harnessfile: "0.1"
+name: test-pipeline
+
+observability:
+  tracing: langfuse/v1
+  sampling: 0.5
+  level: steps
+
+security:
+  guardrails:
+    input: [injection-detect]
+    output: [pii-scrub]
+  budget:
+    max-tokens: 100000
+    max-cost: "$5.00"
+  audit:
+    destination: stdout
+    level: actions
+
+memory:
+  backend: postgres/v1
+  scope: thread
+  type: checkpoint
+  ttl: 24h
+
+resilience:
+  timeout: 1h
+  checkpoint: true
+
+hooks:
+  on-error: slack:#alerts
+  after-step: ./scripts/notify.sh
+
+agents:
+  classifier:
+    model: anthropic/claude-haiku-4-5
+    instructions: Classify the ticket.
+
+  researcher:
+    model: anthropic/claude-sonnet-4-6
+    instructions: Research the problem.
+    tools:
+      - mcp: ./tools/web-search.json
+
+  writer:
+    model: anthropic/claude-sonnet-4-6
+    instructions: Write the report.
+    skills:
+      - ./skills/writing.md
+
+steps:
+  trigger:
+    type: trigger
+    event: webhook
+    output: { query: string }
+    next: classify
+
+  classify:
+    type: router
+    agent: classifier
+    routes:
+      feature: research
+      bug: research
+
+  research:
+    agent: researcher
+    timeout: 5m
+    retry: 3
+    on-error: skip
+    next: review
+
+  review:
+    type: gate
+    approve: human
+    provider: slack/v1
+    channel: "#approvals"
+    timeout: 1h
+    fallback: reject
+    next: write
+
+  write:
+    agent: writer
+    eval:
+      - metric: llm-judge
+        type: llm
+        prompt: "Is this report complete?"
+        pass: 0.8
+      - metric: tests-pass
+    max-iterations: 3
+    context: research.summary
+    hooks:
+      after-step: ./scripts/post-write.sh
+    next: done
+
+  done:
+    type: output
+    input: { report: string }

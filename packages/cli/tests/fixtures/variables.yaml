@@ -1,0 +1,5 @@
+harnessfile: "0.1"
+agents:
+  my-agent:
+    model: ${AGENT_MODEL:-anthropic/claude-sonnet-4-6}
+    instructions: ${AGENT_INSTRUCTIONS}

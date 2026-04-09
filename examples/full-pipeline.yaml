@@ -1,0 +1,138 @@
+harnessfile: "0.1"
+name: jira-feature-pipeline
+
+observability:
+  tracing: langfuse/v1
+
+security:
+  guardrails:
+    output: [pii-scrub]
+  budget:
+    max-tokens: 500000
+    max-cost: "$10.00"
+
+memory:
+  backend: postgres/v1
+  scope: thread
+
+resilience:
+  timeout: 2h
+  checkpoint: true
+
+agents:
+  classifier:
+    model: ${FAST_MODEL:-anthropic/claude-haiku-4-5}
+    instructions: Classify the Jira ticket as feature, bug, or refactor.
+
+  researcher:
+    model: ${DEFAULT_MODEL:-anthropic/claude-sonnet-4-6}
+    instructions: Research the problem space thoroughly.
+
+  spec-writer:
+    model: ${DEFAULT_MODEL:-anthropic/claude-sonnet-4-6}
+    instructions: Write a detailed technical spec.
+
+  planner:
+    model: ${DEFAULT_MODEL:-anthropic/claude-sonnet-4-6}
+    instructions: Create an implementation plan with milestones and risks.
+
+  frontend-dev:
+    model: ${DEFAULT_MODEL:-anthropic/claude-sonnet-4-6}
+    instructions: Implement frontend changes following React patterns.
+
+  backend-dev:
+    model: ${DEFAULT_MODEL:-anthropic/claude-sonnet-4-6}
+    instructions: Implement backend changes following our API patterns.
+
+  test-dev:
+    model: ${DEFAULT_MODEL:-anthropic/claude-sonnet-4-6}
+    instructions: Write comprehensive tests for the implementation.
+
+  merger:
+    model: ${DEFAULT_MODEL:-anthropic/claude-sonnet-4-6}
+    instructions: Merge all branches and resolve conflicts.
+
+steps:
+  jira:
+    type: trigger
+    event: ticket-created
+    filter: "project = ENG AND type = Story"
+    provider: jira/v1
+    output: { ticket_id: string, title: string, description: string }
+    next: classify
+
+  classify:
+    type: router
+    agent: classifier
+    routes:
+      feature: research
+      bug: research
+      refactor: research
+
+  research:
+    agent: researcher
+    next: spec
+
+  spec:
+    agent: spec-writer
+    eval:
+      - metric: llm-judge
+        type: llm
+        prompt: "Is this spec complete and actionable?"
+        pass: 0.8
+    max-iterations: 3
+    next: plan
+
+  plan:
+    agent: planner
+    next: plan-review
+
+  plan-review:
+    type: gate
+    approve: human
+    provider: slack/v1
+    channel: ${APPROVAL_CHANNEL:-#approvals}
+    timeout: 1h
+    fallback: reject
+    next: [frontend, backend, tests]
+
+  frontend:
+    agent: frontend-dev
+    eval:
+      - metric: tests-pass
+      - metric: lint-pass
+    max-iterations: 3
+    next: code-review
+
+  backend:
+    agent: backend-dev
+    eval:
+      - metric: tests-pass
+      - metric: coverage
+        pass: 80%
+    max-iterations: 3
+    next: code-review
+
+  tests:
+    agent: test-dev
+    eval:
+      - metric: tests-pass
+    max-iterations: 3
+    next: code-review
+
+  code-review:
+    type: gate
+    approve: human
+    provider: slack/v1
+    channel: "#code-review"
+    timeout: 2h
+    fallback: reject
+    next: merge
+
+  merge:
+    agent: merger
+    next: done
+
+  done:
+    type: output
+    input: { pr_url: string }

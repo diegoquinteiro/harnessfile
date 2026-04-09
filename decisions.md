@@ -152,6 +152,32 @@ Source: Meta-review worktree conversation (`fc173c45`)
 
 ---
 
+## Session 4 — CLI Implementation (2026-04-09)
+
+Source: Implementation worktree
+
+### D34: Harness provider concept
+**Decision:** A "harness provider" is a runtime execution engine that takes the parsed harnessfile IR and runs it. This is distinct from the spec's runtime providers (slack/v1, jira/v1, etc.) which describe integrations at execution time. First harness provider: LangGraph.
+**Rationale:** Decouples the spec (what the harness is) from the runtime (how it executes). Different teams can use different providers for the same harnessfile.
+
+### D35: CLI follows Docker Compose model
+**Decision:** The CLI uses `up/down/logs/status` commands, not plan/apply. YAML is interpreted at runtime, not compiled to static code. `harnessfile up` starts a persistent server.
+**Rationale:** Docker Compose is the closest UX to what we want — simple, immediate, local-first. Terraform's plan/apply model is better for IaC but too heavy for v0.1.
+
+### D36: v0.1 is local-only
+**Decision:** Single process execution. The provider interface is designed for future distribution (remote workers, task queues) but that layer is not built yet.
+**Rationale:** Ship fast, iterate. The interfaces are clean enough to add distribution in v0.2 without rewriting.
+
+### D37: LangGraph as runtime engine
+**Decision:** The LangGraph provider wraps LangGraph's StateGraph as the execution engine, leveraging its checkpointing, streaming, and Pregel engine.
+**Rationale:** LangGraph provides state management, checkpointing, and human-in-the-loop (interrupt/resume) out of the box. Building our own engine would duplicate this work.
+
+### D38: Persistent server with concurrent runs
+**Decision:** `harnessfile up` starts a long-running server. Triggers listen for events and spawn runs. Multiple runs flow concurrently through the same compiled graph, isolated by thread ID. Gates suspend individual runs via LangGraph's checkpointing, not the whole process.
+**Rationale:** A harness serving production traffic must handle concurrent requests. Each trigger event (webhook POST, cron tick) creates an independent execution with its own state. Gate pauses must not block other runs.
+
+---
+
 ## Open Items
 
 | # | Item | Status |

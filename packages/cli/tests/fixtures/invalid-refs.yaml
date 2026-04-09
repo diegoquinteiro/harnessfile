@@ -1,0 +1,16 @@
+harnessfile: "0.1"
+
+agents:
+  researcher:
+    model: anthropic/claude-sonnet-4-6
+    instructions: Research.
+
+steps:
+  start:
+    type: trigger
+    event: webhook
+    next: research
+
+  research:
+    agent: nonexistent-agent
+    next: nonexistent-step
