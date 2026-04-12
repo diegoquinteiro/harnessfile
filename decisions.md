@@ -6,13 +6,13 @@ Chronological record of all design decisions made across sessions and worktrees.
 
 ## Session 1 — Project Inception (2026-04-09, morning)
 
-Source: Main conversation (`1c136cab`)
+Source: Main conversation
 
 ### D1: Project purpose
 **Decision:** Create an open, vendor-neutral, declarative YAML/JSON spec for AI agent harnesses — the operational scaffolding around agents (triggers, guardrails, hooks, memory, evals, observability), not the agent definition itself.
 
 ### D2: Name — "OpenHarness" flagged as taken
-**Discussion:** User noted "openharness is already an existing project (which is an actual harness implementation)." Explored alternatives:
+**Discussion:** The original "OpenHarness" name conflicted with an existing harness implementation project on GitHub. Explored alternatives:
 - `harnessspec` — rejected (triple S is bad)
 - `harness-manifest` — liked by user ("combines the best of both"), but later found to conflict with npm package `@madebywild/agent-harness-manifest`
 - 10 parallel research agents ran a thorough name search
@@ -25,7 +25,7 @@ Source: Main conversation (`1c136cab`)
 
 ### D3: Scope — harness only, not agent definition
 **Decision:** "We definitely want Option B — we don't want to compete in the agent definition space. We want to define the harness."
-**Context:** After analyzing Oracle Agent Spec and Microsoft AgentSchema, user chose to focus exclusively on the operational layer.
+**Context:** After analyzing Oracle Agent Spec, user chose to focus exclusively on the operational layer.
 
 ### D4: Terraform as design inspiration
 **Decision:** Provider model inspired by Terraform (provider-agnostic, declarative), file format inspired by Docker Compose (simple YAML, progressive complexity).
@@ -72,7 +72,7 @@ No user decisions — these were automated review runs producing the four review
 
 ## Session 3 — Meta-review and tradeoff decisions (2026-04-09, this session)
 
-Source: Meta-review worktree conversation (`fc173c45`)
+Source: Meta-review worktree conversation
 
 ### D13: V0.1 is production-ready
 **Decision:** "Production-ready" — teams should actually deploy against it. Not a proof of concept.

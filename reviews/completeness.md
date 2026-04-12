@@ -1,4 +1,4 @@
-# OpenHarness v0.1 Spec — Completeness Review
+# Harnessfile v0.1 Spec — Completeness Review
 
 **Date**: 2026-04-09
 **Scope**: Assessment of whether the v0.1 draft spec is complete enough for its stated purpose — defining the operational scaffolding around AI agents.
@@ -28,7 +28,7 @@ The five patterns — router, pipeline, parallel, orchestrator, eval-loop — co
 - **Orchestrator** maps to LangGraph's supervisor pattern and AutoGen's dynamic group chat
 - **Eval-loop** maps to LangGraph's cycles and AutoGen's iterative refinement
 
-The orchestrator pattern — where the graph is not fully known at parse time — is a particularly good design decision. Most declarative specs avoid this; OpenHarness embraces it with constraints (`pool`, `max-agents`, `timeout`).
+The orchestrator pattern — where the graph is not fully known at parse time — is a particularly good design decision. Most declarative specs avoid this; Harnessfile embraces it with constraints (`pool`, `max-agents`, `timeout`).
 
 ### 2. Provider Model (Strong)
 
@@ -267,20 +267,16 @@ No mechanism to compose multiple harness files, import shared definitions, or re
 
 ## Competitive Landscape Context
 
-| Spec/Framework | Scope | Relationship to OpenHarness |
+| Spec/Framework | Scope | Relationship to Harnessfile |
 |---|---|---|
 | MCP (Anthropic/AAIF) | Tool connection protocol | Complementary — no overlap |
 | A2A (Google/AAIF) | Agent communication protocol | Complementary — no overlap |
-| Oracle Agent Spec | Agent definition (identity, tools, flows) | Complementary — OpenHarness wraps around it |
+| Oracle Agent Spec | Agent definition (identity, tools, flows) | Complementary — Harnessfile wraps around it |
 | Microsoft Agent Framework | Code-first SDK (not a spec) | Different approach — not competing |
 | OpenAI Assistants API | Managed runtime (being deprecated) | Different layer — not competing |
 | OAGS (Sekuire) | Agent governance/audit spec | Partial overlap on security/guardrails |
-| HKUDS/OpenHarness | Academic Python prototype | Same name collision, different project |
-| jeffrschneider/OpenHarness | API bridge across harnesses | Same name collision, different project |
 
 **The space is genuinely unoccupied.** No open, declarative spec exists for the full harness layer. This is both an opportunity and a responsibility — the spec needs to be complete enough that early adopters don't need to invent their own extensions for basic production concerns.
-
-**Name collision note**: Two other projects on GitHub use the "OpenHarness" name. Neither is a declarative spec, but this should be monitored.
 
 ---
 

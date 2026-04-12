@@ -1,7 +1,7 @@
-# OpenHarness v0.1 — Industry Compatibility Review
+# Harnessfile v0.1 — Industry Compatibility Review
 
 **Date:** 2026-04-09
-**Scope:** Assessment of OpenHarness spec v0.1 draft against major industry agent frameworks, cloud providers, protocols, and declarative infrastructure patterns.
+**Scope:** Assessment of Harnessfile spec v0.1 draft against major industry agent frameworks, cloud providers, protocols, and declarative infrastructure patterns.
 
 **Methodology:** 10 parallel research agents covering LangGraph, CrewAI, AutoGen/AG2, Oracle Agent Spec, A2A/MCP protocols, OpenAI, Anthropic, eval frameworks, AWS/Google Cloud, and declarative infrastructure patterns (Terraform, Docker Compose, GitHub Actions).
 
@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-The OpenHarness spec is **well-positioned** in the ecosystem. Its core abstraction — `model + instructions + tools` for agents, with declarative coordination patterns — aligns with every major framework and cloud provider. No existing standard occupies the same niche: a vendor-neutral, declarative harness format for agent orchestration.
+The Harnessfile spec is **well-positioned** in the ecosystem. Its core abstraction — `model + instructions + tools` for agents, with declarative coordination patterns — aligns with every major framework and cloud provider. No existing standard occupies the same niche: a vendor-neutral, declarative harness format for agent orchestration.
 
 However, the review identified **critical gaps** in memory, eval, parameterization, and the provider model that would limit real-world adoption. The spec also needs to clarify its relationship with Oracle Agent Spec, which overlaps on orchestration.
 
@@ -75,7 +75,7 @@ However, the review identified **critical gaps** in memory, eval, parameterizati
 | Guardrails | Good | Agents SDK has input/output guardrails; maps to gates |
 | Observability | Good | Built-in tracing dashboard |
 
-**Key insight:** OpenAI has **no declarative agent config format**. All agent definition is API/Python. OpenHarness fills this gap directly.
+**Key insight:** OpenAI has **no declarative agent config format**. All agent definition is API/Python. Harnessfile fills this gap directly.
 
 ### 1.5 Anthropic (Claude API + Claude Code)
 
@@ -87,7 +87,7 @@ However, the review identified **critical gaps** in memory, eval, parameterizati
 | Multi-agent | Additive | Anthropic published patterns (orchestrator-worker, routing) but ships no orchestration framework |
 | Memory | N/A | No standardized memory interface from Anthropic |
 
-**Key insight:** Anthropic's ecosystem is the most compatible. OpenHarness fills exactly the gap Anthropic doesn't cover — declarative harness configuration. The hooks model is nearly identical.
+**Key insight:** Anthropic's ecosystem is the most compatible. Harnessfile fills exactly the gap Anthropic doesn't cover — declarative harness configuration. The hooks model is nearly identical.
 
 ### 1.6 AWS Bedrock + Step Functions
 
@@ -102,7 +102,7 @@ However, the review identified **critical gaps** in memory, eval, parameterizati
 | Guardrails | Good | Bedrock Guardrails (content filters, PII, denied topics) map to gates |
 | Declarative target | Good | CloudFormation `AWS::Bedrock::Agent` resources exist as compilation target |
 
-**Verdict:** AWS has the richest mapping. Step Functions + Bedrock could serve as a strong runtime backend. OpenHarness YAML could compile to CloudFormation templates.
+**Verdict:** AWS has the richest mapping. Step Functions + Bedrock could serve as a strong runtime backend. Harnessfile YAML could compile to CloudFormation templates.
 
 ### 1.7 Google Vertex AI Agent Builder
 
@@ -128,7 +128,7 @@ Agent Builder uses `model + instructions + tools + data stores`, confirming the 
 
 **Status:** Launched by Google with ~50 partners. Defines agent communication (Agent Cards, Task lifecycle, streaming), NOT orchestration.
 
-**Key finding:** A2A is **complementary, not competing**. A2A = wire protocol (how agents talk), OpenHarness = topology (how agents are wired together). No overlap on orchestration patterns.
+**Key finding:** A2A is **complementary, not competing**. A2A = wire protocol (how agents talk), Harnessfile = topology (how agents are wired together). No overlap on orchestration patterns.
 
 **Risk:** A2A may eventually add orchestration primitives. The spec should monitor A2A evolution.
 
@@ -151,7 +151,7 @@ Oracle Agent Spec (released Oct 2025) is the **only structured agent-definition 
 
 ### Overlap Concern
 
-Oracle Agent Spec **does define orchestration** via Flows and node types. This overlaps with OpenHarness's coordination patterns (router, pipeline, parallel, orchestrator, eval-loop). The spec's `CLAUDE.md` claims complementarity ("agent definition" vs "harness"), but the boundary is blurrier than assumed.
+Oracle Agent Spec **does define orchestration** via Flows and node types. This overlaps with Harnessfile's coordination patterns (router, pipeline, parallel, orchestrator, eval-loop). The spec's `CLAUDE.md` claims complementarity ("agent definition" vs "harness"), but the boundary is blurrier than assumed.
 
 ### What Oracle Agent Spec Does NOT Define (Yet)
 
@@ -166,9 +166,7 @@ These are listed as upcoming, which could further increase overlap.
 
 ### Recommendation
 
-The spec should explicitly define the boundary: **OpenHarness owns the operational layer** (triggers, gates, evals, hooks, observability, memory) while supporting any orchestration format — including Oracle Agent Spec Flows — as a provider. The coordination patterns in OpenHarness are a convenience layer; for complex orchestration, users could delegate to an Agent Spec Flow provider.
-
-Also: The `CLAUDE.md` reference to "Microsoft AgentSchema" should be **verified or removed** — no such public standard was found.
+The spec should explicitly define the boundary: **Harnessfile owns the operational layer** (triggers, gates, evals, hooks, observability, memory) while supporting any orchestration format — including Oracle Agent Spec Flows — as a provider. The coordination patterns in Harnessfile are a convenience layer; for complex orchestration, users could delegate to an Agent Spec Flow provider.
 
 ---
 
@@ -333,7 +331,7 @@ Nearly identical to Claude Code's hook system and conceptually aligned with GitH
 
 ## 6. Competitive Positioning
 
-| Standard/Framework | What it defines | Relationship to OpenHarness |
+| Standard/Framework | What it defines | Relationship to Harnessfile |
 |---|---|---|
 | Oracle Agent Spec | Agent definition + orchestration flows | **Partially overlapping** — needs boundary clarification |
 | Google A2A | Agent communication protocol | **Complementary** — wire protocol vs topology |
@@ -361,14 +359,13 @@ Nearly identical to Claude Code's hook system and conceptually aligned with GitH
 | 6 | Add step-level error handling (`on-error`) | Medium | Low |
 | 7 | Add skill parameterization (`inputs` with defaults) | Medium | Low |
 | 8 | Clarify Oracle Agent Spec boundary (orchestration overlap) | Medium | Low |
-| 9 | Remove "Microsoft AgentSchema" reference (does not exist) | Low | Trivial |
-| 10 | Document orchestrator pattern runtime semantics | Low | Low |
+| 9 | Document orchestrator pattern runtime semantics | Low | Low |
 
 ---
 
 ## 8. Conclusion
 
-OpenHarness v0.1 has a **strong conceptual foundation** and occupies a genuinely unique position in the ecosystem. The core abstractions (agent definition, coordination patterns, MCP tools, gates, hooks) are well-aligned with industry patterns.
+Harnessfile v0.1 has a **strong conceptual foundation** and occupies a genuinely unique position in the ecosystem. The core abstractions (agent definition, coordination patterns, MCP tools, gates, hooks) are well-aligned with industry patterns.
 
 The main risks are:
 1. **Memory and eval interfaces are too thin** for real-world use — every major framework has richer models

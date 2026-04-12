@@ -1,4 +1,4 @@
-# OpenHarness v0.1 — Simplicity Review
+# Harnessfile v0.1 — Simplicity Review
 
 **Date:** 2026-04-09
 **Scope:** Assessment of whether the v0.1 draft spec is simple enough for its purpose, with design critiques focused on concept count, progressive disclosure, and adoption readiness.
@@ -42,8 +42,8 @@ Three concepts: version, agents map, one agent definition. That matches Docker C
 | Docker Compose | 2 (`services`, one service) | 3 lines |
 | GitHub Actions | 3 (`on`, `jobs`, one step) | 6 lines |
 | Terraform | 2 (`resource` + type) | 3 lines |
-| OpenHarness (implied) | 3 (`harness`, `agents`, one agent) | 4 lines |
-| OpenHarness (as shown) | 9+ top-level keys, 5 patterns | 130 lines |
+| Harnessfile (implied) | 3 (`harness`, `agents`, one agent) | 4 lines |
+| Harnessfile (as shown) | 9+ top-level keys, 5 patterns | 130 lines |
 
 **Recommendation:** Add a "Minimal example" section immediately after "Design principles", showing the 4-line harness above. Then show 2-3 progressively larger examples before the full one. The minimal case must be the first thing a reader sees.
 
@@ -193,10 +193,10 @@ Docker Compose kept cross-cutting concerns implicit (one default network, no bui
 | CrewAI | Multi-agent roles | 6-8 | Partial (YAML + Python) |
 | LangGraph | Graph execution | 8-12 | No (Python only) |
 | Google A2A | Communication protocol | 4-6 | N/A (protocol) |
-| **OpenHarness (current)** | **Harness scaffolding** | **~17** | **Yes** |
-| **OpenHarness (proposed)** | **Harness scaffolding** | **~7-8** | **Yes** |
+| **Harnessfile (current)** | **Harness scaffolding** | **~17** | **Yes** |
+| **Harnessfile (proposed)** | **Harness scaffolding** | **~7-8** | **Yes** |
 
-OpenHarness is the only declarative, file-first spec for the harness layer. That's a real gap worth filling. But at 17 concepts it risks becoming the SOAP of agent orchestration — powerful but unapproachable. At 7-8 concepts it could be the REST.
+Harnessfile is the only declarative, file-first spec for the harness layer. That's a real gap worth filling. But at 17 concepts it risks becoming the SOAP of agent orchestration — powerful but unapproachable. At 7-8 concepts it could be the REST.
 
 ---
 

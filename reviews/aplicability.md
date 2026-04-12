@@ -1,4 +1,4 @@
-# OpenHarness v0.1 Draft — Applicability Review
+# Harnessfile v0.1 Draft — Applicability Review
 
 **Date:** 2026-04-09
 **Scope:** Full review of spec/v0.1-draft.md against the current AI agent ecosystem, assessing whether the spec is applicable enough for its stated purpose.
@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-**The spec fills a genuine gap.** No existing open standard covers the full harness layer — declarative triggers, human gates, eval-loops, multi-pattern coordination, hooks, and memory — in a vendor-neutral, provider-pluggable format. The positioning as complementary to agent definition specs (Oracle Agent Spec, Microsoft AgentSchema) and communication protocols (A2A, MCP) is accurate and well-founded.
+**The spec fills a genuine gap.** No existing open standard covers the full harness layer — declarative triggers, human gates, eval-loops, multi-pattern coordination, hooks, and memory — in a vendor-neutral, provider-pluggable format. The positioning as complementary to agent definition specs (Oracle Agent Spec) and communication protocols (A2A, MCP) is accurate and well-founded.
 
 However, the spec has **five concrete applicability issues** that would limit real-world adoption. Three are structural design problems, two are interface gaps. All are fixable within the v0.1 timeframe.
 
@@ -23,13 +23,12 @@ However, the spec has **five concrete applicability issues** that would limit re
 | Claim in spec | Status | Evidence |
 |---|---|---|
 | Complementary to Oracle Agent Spec | **Confirmed** | Oracle Agent Spec defines agent identity, LLM config, tool definitions, and flow composition. It explicitly delegates runtime execution to adapters and defines nothing about triggers, guardrails, hooks, memory, evals, or observability. The boundary is clean. |
-| Complementary to Microsoft AgentSchema | **Confirmed** | `github.com/microsoft/AgentSchema` is a real, active repo — a vendor-neutral declarative schema for agent identity, instructions, tools, and connections. It does not cover operational scaffolding. |
 | Complementary to Google A2A | **Confirmed** | A2A is strictly a wire-level communication protocol (JSON-RPC 2.0 over HTTP/SSE). It defines task handoff contracts between agents, not workflow topology, routing logic, or harness concerns. |
-| Complementary to Anthropic MCP | **Confirmed** | MCP defines tool/resource/prompt access. Its Nov 2025 expansion (sampling, elicitation) edges into server-level orchestration but does not cover triggers, guardrails, hooks, memory, or deployment topology. The `mcp: ./tools/file.json` syntax in OpenHarness maps directly to the widely adopted `mcpServers` JSON config format. |
+| Complementary to Anthropic MCP | **Confirmed** | MCP defines tool/resource/prompt access. Its Nov 2025 expansion (sampling, elicitation) edges into server-level orchestration but does not cover triggers, guardrails, hooks, memory, or deployment topology. The `mcp: ./tools/file.json` syntax in Harnessfile maps directly to the widely adopted `mcpServers` JSON config format. |
 
 ### 1.2 Competitive Landscape — Genuine Gap Exists
 
-| Spec/Platform | What it covers | What it misses (that OpenHarness covers) |
+| Spec/Platform | What it covers | What it misses (that Harnessfile covers) |
 |---|---|---|
 | Oracle Agent Spec | Agent definition, flow composition, tracing hooks | Triggers, human gates with fallbacks, eval-loops, memory backends, hook lifecycle |
 | Agent Formation Spec (AFS) | Agent and tool declaration, MCP/A2A references | Orchestration patterns, triggers, gates, evals, hooks |
@@ -37,7 +36,7 @@ However, the spec has **five concrete applicability issues** that would limit re
 | Anthropic Agent Skills (SKILL.md) | Reusable skill packaging | No workflow orchestration, triggers, gates, or evals |
 | AWS Bedrock AgentCore | Runtime platform | Not a portable spec |
 
-**No existing open spec covers the full harness layer that OpenHarness targets.** The gap is real.
+**No existing open spec covers the full harness layer that Harnessfile targets.** The gap is real.
 
 ---
 
@@ -45,7 +44,7 @@ However, the spec has **five concrete applicability issues** that would limit re
 
 ### 2.1 Can the spec actually deploy to target runtimes?
 
-| OpenHarness Pattern | LangGraph | CrewAI | AutoGen/MAF |
+| Harnessfile Pattern | LangGraph | CrewAI | AutoGen/MAF |
 |---|---|---|---|
 | `pipeline` | Clean 1:1 (sequential edges) | Clean 1:1 (sequential process / Flow `@listen`) | Clean 1:1 (sequential workflow) |
 | `router` | Clean 1:1 (`add_conditional_edges`) | Maps to Flow `@router` decorator | Maps to Handoff pattern |
@@ -57,13 +56,13 @@ However, the spec has **five concrete applicability issues** that would limit re
 
 ### 2.2 Key Finding: eval-loop Is the Differentiator — and the Risk
 
-The `eval-loop` pattern has no native equivalent in any major framework. This is simultaneously OpenHarness's strongest differentiator and its biggest mapping challenge. Every runtime adapter must synthesize an eval-loop from lower-level primitives (conditional edges, retry logic, scorer functions). The spec should acknowledge this explicitly and provide guidance for adapter implementors.
+The `eval-loop` pattern has no native equivalent in any major framework. This is simultaneously Harnessfile's strongest differentiator and its biggest mapping challenge. Every runtime adapter must synthesize an eval-loop from lower-level primitives (conditional edges, retry logic, scorer functions). The spec should acknowledge this explicitly and provide guidance for adapter implementors.
 
 ### 2.3 Key Finding: No Framework Has a Declarative YAML Layer
 
 Neither LangGraph, CrewAI (for orchestration), nor AutoGen/MAF define workflows in YAML. LangGraph is pure Python/TypeScript graph construction. CrewAI uses YAML for agent/task definitions but requires Python for routing, parallel execution, and loops. MAF has a new "declarative workflows" feature but it's early.
 
-**This means OpenHarness becomes the YAML abstraction that runtime adapters must compile into framework-specific code.** This is the intended role, but the spec should be explicit about the compilation/interpretation boundary.
+**This means Harnessfile becomes the YAML abstraction that runtime adapters must compile into framework-specific code.** This is the intended role, but the spec should be explicit about the compilation/interpretation boundary.
 
 ---
 
@@ -302,7 +301,6 @@ The spec explicitly draws inspiration from Terraform (provider model) and Docker
 - [Memory — CrewAI Docs](https://docs.crewai.com/en/concepts/memory)
 
 ### Microsoft AutoGen / Agent Framework
-- [GitHub - microsoft/AgentSchema](https://github.com/microsoft/AgentSchema)
 - [Microsoft Agent Framework v1.0 Release](https://devblogs.microsoft.com/agent-framework/microsoft-agent-framework-version-1-0/)
 - [Microsoft Agent Framework Overview — Microsoft Learn](https://learn.microsoft.com/en-us/agent-framework/overview/)
 
