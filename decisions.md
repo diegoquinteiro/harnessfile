@@ -178,6 +178,28 @@ Source: Implementation worktree
 
 ---
 
+## Session 5 — Visual editor: schemas, inspector, fan-in semantics (2026-04-12)
+
+Source: `worktree-ui` editor session
+
+### D39: Optional output/input schemas surface in the editor; fan-in stays soft
+**Decision:** The spec already permits `output:` on triggers/agents and `input:` on outputs (visible in the v0.1 examples). The visual editor must (a) expose these as editable schemas on each step, and (b) treat schema conformance as a *soft* constraint:
+
+- Connections are never refused by the editor based on type compatibility (Q3=b — soft typing).
+- Fan-in into a step with heterogeneous incoming payloads still concatenates per D33; the editor surfaces this as a non-blocking warning, not an error (Q2=a).
+- Steps that don't declare a schema flow through untyped — schemas are progressive disclosure (D25), opt-in only.
+
+**Implication:** A new **edge inspector** (double-click an edge) shows the inferred upstream payload shape, the declared downstream input (if any), the fan-in diagnosis at the target, and any heterogeneity warnings. Pure diagnostic — never blocks.
+
+**Rejected alternatives:**
+- *Hard typing* (ComfyUI/Blueprints style — refuse incompatible connections at edit time): too rigid for an LLM-centric tool where step outputs are usually free-form text.
+- *Per-field reducers* (LangGraph style): would reintroduce the `merge` field that D33 explicitly removed.
+- *Aggregator step type* (Dify style): adds a fifth coordination step with no payoff over "use an agent step" (D33).
+
+**Inspired by:** n8n (soft typing + manual merge nodes), Dify (variable inspection), LangGraph (typed state but with reducers).
+
+---
+
 ## Open Items
 
 | # | Item | Status |

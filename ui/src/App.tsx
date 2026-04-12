@@ -16,6 +16,9 @@ import NodePalette from './components/NodePalette';
 import ContextMenu from './components/ContextMenu';
 import SettingsModal from './components/SettingsModal';
 import YamlModal from './components/YamlModal';
+import EdgeInspector from './components/EdgeInspector';
+import { exportToYaml } from './utils/yamlExport';
+import { saveFile } from './utils/fileIO';
 import type { StepType } from './types/harnessfile';
 
 if (typeof window !== 'undefined') (window as unknown as Record<string, unknown>).__harnessStore = useHarnessStore;
@@ -23,11 +26,42 @@ if (typeof window !== 'undefined') (window as unknown as Record<string, unknown>
 const nodeTypes = { harnessNode: HarnessNode };
 const edgeTypes = { harnessEdge: HarnessEdge };
 
+/** Search for a React Flow handle within `radius` px of (x, y).
+ * Used as a forgiving fallback when the user releases a connection
+ * slightly off-target — without it the editor would create a stray
+ * agent every time the cursor missed by a pixel. */
+function findHandleNear(
+  x: number,
+  y: number,
+  radius: number,
+): { nodeId: string; handleId: string | null; handleType: 'source' | 'target' } | null {
+  // Sample center plus 8 radial offsets
+  const offsets: [number, number][] = [
+    [0, 0],
+    [radius, 0], [-radius, 0], [0, radius], [0, -radius],
+    [radius, radius], [-radius, -radius], [radius, -radius], [-radius, radius],
+  ];
+  for (const [dx, dy] of offsets) {
+    const el = document.elementFromPoint(x + dx, y + dy);
+    if (!el) continue;
+    const handle = (el as HTMLElement).closest('.react-flow__handle') as HTMLElement | null;
+    if (!handle) continue;
+    const nodeEl = handle.closest('.react-flow__node') as HTMLElement | null;
+    const nodeId = nodeEl?.getAttribute('data-id');
+    if (!nodeId) continue;
+    const handleId = handle.getAttribute('data-handleid');
+    const handleType = (handle.getAttribute('data-handletype') as 'source' | 'target') || 'target';
+    return { nodeId, handleId, handleType };
+  }
+  return null;
+}
+
 function FlowCanvas() {
   const {
     nodes, edges,
     onNodesChange, onEdgesChange, onConnect,
     addNode, addNodeAndConnect, setSelectedNode, setEditingNode, setContextMenu,
+    setInspectingEdge,
     theme,
   } = useHarnessStore();
 
@@ -67,6 +101,10 @@ function FlowCanvas() {
     setContextMenu({ type: 'edge', id: edge.id, x: e.clientX, y: e.clientY });
   }, [setContextMenu]);
 
+  const onEdgeDoubleClick = useCallback((_: ReactMouseEvent, edge: { id: string }) => {
+    setInspectingEdge(edge.id);
+  }, [setInspectingEdge]);
+
   const onNodeContextMenu = useCallback((e: ReactMouseEvent, node: { id: string }) => {
     e.preventDefault();
     setContextMenu({ type: 'node', id: node.id, x: e.clientX, y: e.clientY });
@@ -81,16 +119,41 @@ function FlowCanvas() {
 
   const onConnectEnd: OnConnectEnd = useCallback((event) => {
     if (!connectingFrom.current) return;
-    const target = (event as MouseEvent).target as HTMLElement;
-    if (target.closest('.react-flow__node') || target.closest('.react-flow__handle')) {
+    const me = event as MouseEvent;
+    const target = me.target as HTMLElement;
+
+    // 1. Released on a handle? React Flow already routed onConnect — bail.
+    if (target.closest('.react-flow__handle')) {
       connectingFrom.current = null;
       return;
     }
-    const { clientX, clientY } = event as MouseEvent;
+
+    // 2. Released near (but not exactly on) a handle? Manually emit the
+    //    connect rather than creating a stray new node.
+    const { clientX, clientY } = me;
+    const near = findHandleNear(clientX, clientY, 14);
+    if (near && near.nodeId !== connectingFrom.current.nodeId) {
+      onConnect({
+        source: connectingFrom.current.nodeId,
+        sourceHandle: connectingFrom.current.handleId,
+        target: near.nodeId,
+        targetHandle: near.handleId,
+      });
+      connectingFrom.current = null;
+      return;
+    }
+
+    // 3. Released on an unrelated node? Don't spawn a duplicate.
+    if (target.closest('.react-flow__node')) {
+      connectingFrom.current = null;
+      return;
+    }
+
+    // 4. Empty canvas → create a new connected node.
     const position = screenToFlowPosition({ x: clientX, y: clientY });
     addNodeAndConnect(connectingFrom.current.nodeId, connectingFrom.current.handleId, position);
     connectingFrom.current = null;
-  }, [addNodeAndConnect, screenToFlowPosition]);
+  }, [addNodeAndConnect, screenToFlowPosition, onConnect]);
 
   return (
     <ReactFlow
@@ -107,6 +170,7 @@ function FlowCanvas() {
       onNodeClick={onNodeClick}
       onNodeDoubleClick={onNodeDoubleClick}
       onEdgeContextMenu={onEdgeContextMenu}
+      onEdgeDoubleClick={onEdgeDoubleClick}
       onNodeContextMenu={onNodeContextMenu}
       nodeTypes={nodeTypes}
       edgeTypes={edgeTypes}
@@ -135,6 +199,34 @@ function App() {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
+
+  // Cmd/Ctrl+S → save the current harness. Uses the existing file handle
+  // when present, otherwise prompts Save As.
+  useEffect(() => {
+    const onKey = async (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!(mod && e.key.toLowerCase() === 's')) return;
+      e.preventDefault();
+      const s = useHarnessStore.getState();
+      const yamlStr = exportToYaml(
+        s.nodes, s.edges, s.agents, s.harnessName,
+        s.observability, s.memory, s.security, s.resilience, s.hooks,
+      );
+      const suggested = (s.fileName || `${s.harnessName || 'harnessfile'}.yaml`)
+        .replace(/\.ya?ml$/, '') + '.yaml';
+      try {
+        const result = await saveFile(yamlStr, s.fileHandle, suggested);
+        if (result) {
+          s.setFileHandle(result.handle);
+          s.setFileName(result.name);
+        }
+      } catch (err) {
+        console.error('Save failed', err);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   return (
     <div className="flex h-screen w-screen" style={{ background: 'var(--color-surface-0)' }}>
@@ -171,6 +263,7 @@ function App() {
       <ContextMenu />
       <SettingsModal />
       <YamlModal />
+      <EdgeInspector />
     </div>
   );
 }

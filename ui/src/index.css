@@ -155,12 +155,28 @@ html, body, #root {
   height: 10px !important;
   border: 2px solid var(--color-border-3) !important;
   background: var(--color-surface-1) !important;
-  transition: all 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+/* Enlarged invisible hit area — makes connection grabs much more forgiving
+ * without changing the visual position of the handle. */
+.react-flow__handle::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  pointer-events: auto;
 }
 .react-flow__handle:hover {
   border-color: var(--color-amber) !important;
   background: var(--color-amber) !important;
-  transform: scale(1.4);
+  box-shadow: 0 0 0 5px var(--color-amber-soft);
+}
+.react-flow__handle.connectingfrom,
+.react-flow__handle.connectingto,
+.react-flow__handle.valid {
+  border-color: var(--color-amber) !important;
+  background: var(--color-amber) !important;
+  box-shadow: 0 0 0 5px var(--color-amber-soft);
 }
 
 ::-webkit-scrollbar { width: 5px; height: 5px; }
