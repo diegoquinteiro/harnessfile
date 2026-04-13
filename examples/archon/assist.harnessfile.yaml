@@ -1,0 +1,11 @@
+harnessfile: "0.2"
+name: archon-assist
+description: |
+  Use when: No other workflow matches the request.
+  Handles: Questions, debugging, exploration, one-off tasks, explanations, CI failures, general help.
+  Capability: Full Claude Code agent with all tools available.
+  Note: Will inform user when assist mode is used for tracking.
+
+steps:
+  assist:
+    command: archon-assist

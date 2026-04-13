@@ -1,0 +1,77 @@
+harnessfile: '0.2'
+name: archon-issue-review-full
+description: |
+  Use when: User wants a FULL, COMPREHENSIVE fix + review pipeline for a GitHub issue.
+  Triggers: "full review", "comprehensive fix", "fix with full review", "deep review", "issue review full".
+  NOT for: Simple issue fixes (use archon-fix-github-issue instead),
+           questions about issues, CI failures, PR reviews, general exploration.
+
+  Full workflow:
+  1. Investigate issue -> root cause analysis, implementation plan
+  2. Implement fix -> code changes, tests, PR creation
+  3. Comprehensive review -> 5 parallel agents with scope awareness
+  4. Fix review issues -> address CRITICAL/HIGH findings
+  5. Final summary -> decision matrix, follow-up recommendations
+steps:
+  investigate:
+    command: archon-investigate-issue
+  implement:
+    command: archon-implement-issue
+    depends_on:
+    - investigate
+    context: fresh
+  review-scope:
+    command: archon-pr-review-scope
+    depends_on:
+    - implement
+    context: fresh
+  sync:
+    command: archon-sync-pr-with-main
+    depends_on:
+    - review-scope
+    context: fresh
+  code-review:
+    command: archon-code-review-agent
+    depends_on:
+    - sync
+    context: fresh
+  error-handling:
+    command: archon-error-handling-agent
+    depends_on:
+    - sync
+    context: fresh
+  test-coverage:
+    command: archon-test-coverage-agent
+    depends_on:
+    - sync
+    context: fresh
+  comment-quality:
+    command: archon-comment-quality-agent
+    depends_on:
+    - sync
+    context: fresh
+  docs-impact:
+    command: archon-docs-impact-agent
+    depends_on:
+    - sync
+    context: fresh
+  synthesize:
+    command: archon-synthesize-review
+    depends_on:
+    - code-review
+    - error-handling
+    - test-coverage
+    - comment-quality
+    - docs-impact
+    trigger_rule: one_success
+    context: fresh
+  implement-fixes:
+    command: archon-implement-review-fixes
+    depends_on:
+    - synthesize
+    context: fresh
+  summary:
+    command: archon-workflow-summary
+    depends_on:
+    - implement-fixes
+    context: fresh

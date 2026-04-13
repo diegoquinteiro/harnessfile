@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { up } from "./commands/up.js";
 import { validate } from "./commands/validate.js";
 import { status } from "./commands/status.js";
+import { compile } from "./commands/compile.js";
 
 export function createCli(): Command {
   const program = new Command();
@@ -34,6 +35,16 @@ export function createCli(): Command {
     .description("Show running harness state")
     .option("--port <port>", "Gate resolver port to query", "8081")
     .action(status);
+
+  program
+    .command("compile")
+    .description("Compile a harnessfile to a target format (e.g., Archon workflow YAML)")
+    .argument("[file]", "Path to harnessfile (default: auto-detect)")
+    .option("-t, --target <target>", "Compile target provider", "archon/v1")
+    .option("-o, --out <dir>", "Output directory (default: stdout)")
+    .option("--strict", "Fail if any warning (non-info) is produced")
+    .option("--json", "Also emit <name>.warnings.json alongside the output file")
+    .action(compile);
 
   return program;
 }

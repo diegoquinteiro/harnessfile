@@ -1,0 +1,22 @@
+{
+  "adversarial-dev": [],
+  "architect": [],
+  "assist": [],
+  "comprehensive-pr-review": [],
+  "create-issue": [],
+  "feature-development": [],
+  "fix-github-issue": [],
+  "idea-to-pr": [],
+  "interactive-prd": [],
+  "issue-review-full": [],
+  "piv-loop": [],
+  "plan-to-pr": [],
+  "ralph-dag": [],
+  "refactor-safely": [],
+  "remotion-generate": [],
+  "resolve-conflicts": [],
+  "smart-pr-review": [],
+  "test-loop-dag": [],
+  "validate-pr": [],
+  "workflow-builder": []
+}

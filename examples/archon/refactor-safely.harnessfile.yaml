@@ -1,0 +1,231 @@
+harnessfile: '0.2'
+name: archon-refactor-safely
+description: |
+  Use when: User wants to refactor code safely with continuous validation and behavior preservation.
+  Triggers: "refactor", "refactor safely", "split this file", "extract module", "break up",
+            "decompose", "safe refactor", "split file", "extract into modules".
+  Does: Scans refactoring scope -> analyzes impact (read-only) -> plans ordered task list ->
+        executes with type-check hooks after every edit -> validates full suite ->
+        verifies behavior preservation (read-only) -> creates PR with before/after comparison.
+  NOT for: Bug fixes (use archon-fix-github-issue), feature development (use archon-feature-development),
+           general architecture sweeps (use archon-architect), PR reviews.
+
+  Key safety features:
+  - Analysis and verification nodes are read-only (denied_tools: [Write, Edit, Bash])
+  - PreToolUse hooks check if each edit is in the plan
+  - PostToolUse hooks force type-check after every file change
+  - Behavior verification confirms no logic changes after refactoring
+provider: claude
+steps:
+  scan-scope:
+    bash: |
+      echo "=== REFACTORING TARGET ==="
+      echo "User request: $ARGUMENTS"
+      echo ""
+
+      echo "=== FILE SIZE ANALYSIS (source files by size) ==="
+      find . -name '*.ts' -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/dist/*' -not -name '*.test.ts' -not -name '*.d.ts' \
+        -exec wc -l {} + 2>/dev/null | sort -rn | head -30
+      echo ""
+
+      echo "=== FILES OVER 500 LINES ==="
+      find . -name '*.ts' -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/dist/*' -not -name '*.test.ts' -not -name '*.d.ts' \
+        -exec sh -c 'lines=$(wc -l < "$1"); if [ "$lines" -gt 500 ]; then echo "$lines $1"; fi' _ {} \; 2>/dev/null | sort -rn
+      echo ""
+
+      echo "=== FUNCTION COUNT PER FILE (top 20) ==="
+      for f in $(find . -name '*.ts' -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/dist/*' -not -name '*.test.ts' -not -name '*.d.ts'); do
+        count=$(grep -cE '^\s*(export\s+)?(async\s+)?function\s|=>\s*\{' "$f" 2>/dev/null) || count=0
+        if [ "$count" -gt 5 ]; then
+          echo "$count functions: $f"
+        fi
+      done | sort -rn | head -20
+      echo ""
+
+      echo "=== EXPORT ANALYSIS (files with many exports) ==="
+      for f in $(find . -name '*.ts' -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/dist/*' -not -name '*.test.ts' -not -name '*.d.ts'); do
+        count=$(grep -c "^export " "$f" 2>/dev/null) || count=0
+        if [ "$count" -gt 5 ]; then
+          echo "$count exports: $f"
+        fi
+      done | sort -rn | head -20
+    timeout: 60000
+  analyze-impact:
+    prompt: "You are a senior software engineer analyzing code for a safe refactoring.\n\n## Refactoring Request\n\n$ARGUMENTS\n\n## Codebase Scan Results\n\n$scan-scope.output\n\n## Instructions\n\n1.\
+      \ Identify the PRIMARY file(s) targeted for refactoring based on the user's request\n   and the scan results above\n2. Read each target file thoroughly \u2014 understand every function, type, and\
+      \ export\n3. For each target file, map ALL call sites:\n   - Use Grep to find every import of the target file across the codebase\n   - Track which specific exports are used and where\n   - Note any\
+      \ dynamic imports or re-exports through index files\n4. Identify risk areas:\n   - Functions with complex internal dependencies (shared closures, module-level state)\n   - Circular dependencies between\
+      \ functions in the file\n   - Any module-level side effects (top-level `const`, initialization code)\n   - Exports that are part of the public API vs internal-only\n5. Check for existing tests:\n\
+      \   - Find test files for the target module(s)\n   - Note what's tested and what isn't\n\n## Output\n\nWrite a thorough impact analysis to `$ARTIFACTS_DIR/impact-analysis.md` with:\n\n### Target Files\n\
+      - File path, line count, function count\n- List of all exported symbols with brief descriptions\n\n### Dependency Map\n- Which files import from the target (with specific imports used)\n- Which files\
+      \ the target imports from\n\n### Risk Assessment\n- Module-level state or side effects\n- Complex internal dependencies between functions\n- Public API surface that must be preserved exactly\n\n###\
+      \ Test Coverage\n- Existing test files and what they cover\n- Critical paths that must remain tested\n\n### Recommended Decomposition Strategy\n- Suggested module boundaries (which functions group\
+      \ together)\n- Rationale for each grouping (cohesion, shared dependencies)\n"
+    depends_on:
+    - scan-scope
+    context: fresh
+    denied_tools:
+    - Write
+    - Edit
+    - Bash
+  plan-refactor:
+    prompt: "You are planning a safe refactoring. You must produce a precise, ordered plan\nthat another agent will follow literally.\n\n## Impact Analysis\n\n$analyze-impact.output\n\n## Refactoring Goal\n\
+      \n$ARGUMENTS\n\n## Principles\n\n- **Behavior preservation**: The refactoring must NOT change any behavior \u2014 only structure\n- **Incremental**: Each step must leave the codebase in a compilable\
+      \ state\n- **Reversible**: Each step can be independently reverted\n- **No mixed concerns**: Do not combine refactoring with bug fixes or improvements\n- **Preserve public API**: All existing exports\
+      \ must remain accessible from the same import paths\n- **Maximum file size**: Target 500 lines or fewer per file after refactoring\n\n## Instructions\n\n1. Read the impact analysis from `$ARTIFACTS_DIR/impact-analysis.md`\n\
+      2. Read the target file(s) to understand the current structure\n3. Design the decomposition:\n   - Group related functions into cohesive modules\n   - Identify shared utilities, types, and constants\n\
+      \   - Plan the new file structure with descriptive names\n4. Write an ordered task list where each task is:\n   - Independent and leaves code compilable after completion\n   - Specific about what\
+      \ to extract and where\n   - Clear about import updates needed\n\n## Output\n\nWrite the plan to `$ARTIFACTS_DIR/refactor-plan.md` with:\n\n### File Structure (Before)\n```\n[current structure with\
+      \ line counts]\n```\n\n### File Structure (After)\n```\n[planned structure with estimated line counts]\n```\n\n### Ordered Tasks\n\nFor each task:\n```\n## Task N: [brief description]\n\n**Action**:\
+      \ CREATE | EXTRACT | UPDATE\n**Source**: [source file]\n**Target**: [target file]\n**What moves**:\n- function functionName (lines X-Y)\n- type TypeName (lines X-Y)\n\n**Import updates needed**:\n\
+      - [file]: change import from [old] to [new]\n\n**Rollback**: [how to undo this specific step]\n```\n\n### Validation Commands\n- Type check: `bun run type-check`\n- Lint: `bun run lint`\n- Tests:\
+      \ `bun run test`\n- Format: `bun run format:check`\n"
+    depends_on:
+    - analyze-impact
+    context: fresh
+    denied_tools:
+    - Write
+    - Edit
+    - Bash
+  execute-refactor:
+    model: claude-opus-4-6[1m]
+    prompt: "You are executing a refactoring plan with strict safety guardrails.\n\n## Plan\n\nRead the full plan from `$ARTIFACTS_DIR/refactor-plan.md` \u2014 follow it LITERALLY.\n\n## Rules\n\n- **Follow\
+      \ the plan exactly** \u2014 do not add extra improvements or cleanups\n- **One task at a time** \u2014 complete each task fully before starting the next\n- **Type-check after every file change** \u2014\
+      \ you'll be prompted to do this after each edit\n- **Preserve all behavior** \u2014 refactoring means moving code, not changing it\n- **Preserve the public API** \u2014 if the original file exported\
+      \ something, it must still be\n  importable from the same path (use re-exports in the original file if needed)\n- **Update all import sites** \u2014 every file that imported from the original must\
+      \ be updated\n- **Commit after each logical task** \u2014 one commit per plan task with a clear message\n\n## Process for Each Task\n\n1. Read the plan task\n2. Read the source file to understand\
+      \ current state\n3. Create the new file (if extracting) with the functions/types being moved\n4. Update the source file to remove the moved code and add imports from the new file\n5. Update the original\
+      \ file's exports to re-export from the new module (API preservation)\n6. Use Grep to find and update ALL import sites across the codebase\n7. Run `bun run type-check` to verify (you'll be reminded\
+      \ by hooks)\n8. Commit: `git add -A && git commit -m \"refactor: [task description]\"`\n9. Move to next task\n\n## Handling Problems\n\n- If type-check fails after a change: fix it immediately before\
+      \ proceeding\n- If a task is more complex than planned: complete it anyway, note the deviation\n- If you discover the plan missed an import site: update it and note it\n- NEVER skip a task \u2014\
+      \ complete them in order\n"
+    depends_on:
+    - plan-refactor
+    context: fresh
+    hooks:
+      PreToolUse:
+      - matcher: Write|Edit
+        response:
+          hookSpecificOutput:
+            hookEventName: PreToolUse
+            additionalContext: |
+              Before modifying this file: Is this file in your refactoring plan ($ARTIFACTS_DIR/refactor-plan.md)? If it's not a planned target file AND not a file that imports from the target, explain why you're touching it. Unplanned changes increase risk.
+      PostToolUse:
+      - matcher: Write|Edit
+        response:
+          systemMessage: "You just modified a file. STOP and do these things NOW before making any other changes: 1. Run `bun run type-check` to verify the change compiles 2. If type-check fails, fix the\
+            \ error immediately 3. Verify you preserved the exact same behavior \u2014 no logic changes, only structural moves Only proceed to the next change after type-check passes.\n"
+      - matcher: Bash
+        response:
+          hookSpecificOutput:
+            hookEventName: PostToolUse
+            additionalContext: |
+              Check the exit code. If type-check or any validation failed, fix the issue before continuing. Do not accumulate broken state.
+  validate:
+    bash: |
+      echo "=== TYPE CHECK ==="
+      bun run type-check 2>&1
+      TC_EXIT=$?
+
+      echo ""
+      echo "=== LINT ==="
+      bun run lint 2>&1
+      LINT_EXIT=$?
+
+      echo ""
+      echo "=== FORMAT CHECK ==="
+      bun run format:check 2>&1
+      FMT_EXIT=$?
+
+      echo ""
+      echo "=== TESTS ==="
+      bun run test 2>&1
+      TEST_EXIT=$?
+
+      echo ""
+      echo "=== FILE SIZE CHECK ==="
+      echo "Files still over 500 lines:"
+      find . -name '*.ts' -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/dist/*' -not -name '*.test.ts' -not -name '*.d.ts' \
+        -exec sh -c 'lines=$(wc -l < "$1"); if [ "$lines" -gt 500 ]; then echo "$lines $1"; fi' _ {} \; 2>/dev/null | sort -rn
+      echo ""
+
+      echo "=== RESULTS ==="
+      echo "Type check: $([ $TC_EXIT -eq 0 ] && echo 'PASS' || echo 'FAIL')"
+      echo "Lint: $([ $LINT_EXIT -eq 0 ] && echo 'PASS' || echo 'FAIL')"
+      echo "Format: $([ $FMT_EXIT -eq 0 ] && echo 'PASS' || echo 'FAIL')"
+      echo "Tests: $([ $TEST_EXIT -eq 0 ] && echo 'PASS' || echo 'FAIL')"
+
+      if [ $TC_EXIT -eq 0 ] && [ $LINT_EXIT -eq 0 ] && [ $FMT_EXIT -eq 0 ] && [ $TEST_EXIT -eq 0 ]; then
+        echo "VALIDATION_STATUS: PASS"
+      else
+        echo "VALIDATION_STATUS: FAIL"
+      fi
+    depends_on:
+    - execute-refactor
+    timeout: 300000
+  fix-failures:
+    prompt: "Review the validation output below.\n\n## Validation Output\n\n$validate.output\n\n## Instructions\n\nIf the output ends with \"VALIDATION_STATUS: PASS\", respond with\n\"All checks passed\
+      \ \u2014 no fixes needed.\" and stop.\n\nIf there are failures:\n\n1. Read the validation failures carefully\n2. Fix ONLY what's broken \u2014 do not make additional improvements\n3. If a fix requires\
+      \ changing behavior (not just fixing a type/lint error),\n   revert the original change instead\n4. Run the specific failing check after each fix to confirm it passes\n5. After all fixes, run the\
+      \ full validation suite: `bun run validate`\n\nIf there are files still over 500 lines, note them but do NOT attempt further\nsplitting in this node \u2014 that would require a new plan cycle.\n"
+    depends_on:
+    - validate
+    context: fresh
+    hooks:
+      PostToolUse:
+      - matcher: Write|Edit
+        response:
+          systemMessage: "You just made a fix. Run the specific failing validation check NOW to verify your fix works. Do not batch fixes \u2014 verify each one.\n"
+      PreToolUse:
+      - matcher: Write|Edit
+        response:
+          hookSpecificOutput:
+            hookEventName: PreToolUse
+            additionalContext: |
+              You are fixing validation failures only. Do not make any changes beyond what's needed to pass the failing checks. If in doubt, revert the original change that caused the failure.
+  verify-behavior:
+    prompt: "You are a code reviewer verifying that a refactoring preserved exact behavior.\nYou can ONLY read files \u2014 you cannot make any changes.\n\n## Refactoring Plan\n\nRead the plan from `$ARTIFACTS_DIR/refactor-plan.md`\
+      \ to understand what was intended.\n\n## Instructions\n\n1. Use Grep and Glob to find all files in the new module locations listed in\n   the plan, then Read each one. (Note: Bash is denied in this\
+      \ read-only node,\n   so use Grep/Glob/Read to discover changes instead of git commands.)\n2. For each new file created by the refactoring:\n   - Verify the extracted functions match the originals\
+      \ exactly (no logic changes)\n   - Check that all types and interfaces are preserved\n3. For the original file(s):\n   - Verify re-exports exist for all symbols that were previously exported\n   -\
+      \ Confirm no function bodies were changed (only moved)\n4. For all import sites updated:\n   - Verify imports resolve to the correct new locations\n   - Check that no import was missed\n5. Verify\
+      \ the public API is preserved:\n   - Any code that imported from the original file should still work unchanged\n   - Re-exports in the original file should cover all moved symbols\n\n## Output\n\n\
+      Write your verification report to `$ARTIFACTS_DIR/behavior-verification.md`:\n\n### Verdict: PASS | FAIL\n\n### Functions Verified\n| Function | Original Location | New Location | Behavior Preserved\
+      \ |\n|----------|------------------|--------------|-------------------|\n| funcName | file.ts:42 | new-file.ts:10 | Yes/No |\n\n### Public API Check\n- [ ] All original exports still accessible from\
+      \ original import path\n- [ ] Re-exports correctly configured\n\n### Import Sites Updated\n- [ ] All N import sites verified\n\n### Issues Found\n[List any behavior changes detected, or \"None \u2014\
+      \ refactoring is behavior-preserving\"]\n"
+    depends_on:
+    - fix-failures
+    context: fresh
+    denied_tools:
+    - Write
+    - Edit
+    - Bash
+  create-pr:
+    prompt: "Create a pull request for the refactoring.\n\n## Context\n\n- **Refactoring goal**: $ARGUMENTS\n- **Impact analysis**: Read `$ARTIFACTS_DIR/impact-analysis.md`\n- **Refactoring plan**: Read\
+      \ `$ARTIFACTS_DIR/refactor-plan.md`\n- **Validation**: $validate.output\n- **Behavior verification**: Read `$ARTIFACTS_DIR/behavior-verification.md`\n\n## Instructions\n\n1. Stage all changes and\
+      \ create a final commit if there are uncommitted changes\n2. Push the branch: `git push -u origin HEAD`\n3. Check if a PR already exists: `gh pr list --head $(git branch --show-current)`\n4. Create\
+      \ the PR with the format below\n5. Save the PR URL to `$ARTIFACTS_DIR/.pr-url`\n\n## PR Format\n\n- **Title**: `refactor: [concise description]` (under 70 chars)\n- **Body**:\n\n```markdown\n## Refactoring:\
+      \ [goal]\n\n### Motivation\n\n[Why this refactoring was needed \u2014 file sizes, complexity, maintainability]\n\n### Before\n\n```\n[Original file structure with line counts from the plan]\n```\n\
+      \n### After\n\n```\n[New file structure with line counts]\n```\n\n### Changes\n\n[For each new module: what was extracted and why it's a cohesive unit]\n\n### Safety\n\n- [x] Type check passes\n-\
+      \ [x] Lint passes\n- [x] Tests pass (all existing tests still green)\n- [x] Public API preserved (re-exports maintain backward compatibility)\n- [x] Behavior verification passed (read-only audit confirmed\
+      \ no logic changes)\n- [x] Each task committed separately for easy review/revert\n\n### Review Guide\n\nEach commit represents one extraction step. Review commits individually for easiest review.\n\
+      All commits are behavior-preserving structural moves.\n```\n"
+    depends_on:
+    - verify-behavior
+    context: fresh
+    hooks:
+      PreToolUse:
+      - matcher: Write|Edit
+        response:
+          hookSpecificOutput:
+            hookEventName: PreToolUse
+            permissionDecision: deny
+            permissionDecisionReason: "PR creation node \u2014 do not modify source files. Use only git and gh commands."
+      PostToolUse:
+      - matcher: Bash
+        response:
+          hookSpecificOutput:
+            hookEventName: PostToolUse
+            additionalContext: |
+              Verify this command succeeded. If git push or gh pr create failed, read the error message carefully before retrying.

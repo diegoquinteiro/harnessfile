@@ -23,17 +23,21 @@ export function validateHarnessfile(ir: Harnessfile): ValidationResult {
   return { valid: errors.length === 0, errors, warnings };
 }
 
+const SUPPORTED_VERSIONS = new Set(["0.1", "0.2"]);
+
 function validateVersion(ir: Harnessfile, errors: ValidationError[]) {
-  if (ir.version !== "0.1") {
+  if (!SUPPORTED_VERSIONS.has(ir.version)) {
     errors.push({
       path: "harnessfile",
-      message: `Unsupported version "${ir.version}". Only "0.1" is supported.`,
+      message: `Unsupported version "${ir.version}". Supported: ${[...SUPPORTED_VERSIONS].join(", ")}.`,
     });
   }
 }
 
 function validateAgents(ir: Harnessfile, errors: ValidationError[]) {
-  if (Object.keys(ir.agents).length === 0) {
+  // v0.1 requires at least one agent. v0.2 makes agents optional when steps
+  // use inline execution modes (prompt/bash/command/loop).
+  if (ir.version === "0.1" && Object.keys(ir.agents).length === 0) {
     errors.push({
       path: "agents",
       message: "At least one agent must be defined.",
@@ -69,7 +73,7 @@ function validateStepRefs(ir: Harnessfile, errors: ValidationError[]) {
       });
     }
 
-    // Next references
+    // Next references (forward edges)
     const nextTargets = step.next
       ? Array.isArray(step.next)
         ? step.next
@@ -81,6 +85,18 @@ function validateStepRefs(ir: Harnessfile, errors: ValidationError[]) {
           path: `steps.${name}.next`,
           message: `Step '${name}' targets undefined step '${target}'.`,
         });
+      }
+    }
+
+    // depends_on references (backward edges, v0.2)
+    if (step.dependsOn) {
+      for (const source of step.dependsOn) {
+        if (!stepNames.has(source)) {
+          errors.push({
+            path: `steps.${name}.depends_on`,
+            message: `Step '${name}' depends on undefined step '${source}'.`,
+          });
+        }
       }
     }
 
@@ -108,14 +124,19 @@ function validateStepRefs(ir: Harnessfile, errors: ValidationError[]) {
       }
     }
 
-    // Agent step must have an agent (unless it's a special type)
-    if (
-      step.type === "agent" &&
-      !step.agent
-    ) {
+    // Agent step must have an agent, unless it has an inline execution mode
+    // (prompt/bash/command/loop) or a provider-specific raw execution mode
+    // (e.g., Archon's `approval:` interactive gate block).
+    const hasInlineMode =
+      step.prompt != null ||
+      step.bash != null ||
+      step.command != null ||
+      step.loop != null ||
+      (step.raw != null && Object.keys(step.raw).length > 0);
+    if (step.type === "agent" && !step.agent && !hasInlineMode) {
       errors.push({
         path: `steps.${name}`,
-        message: `Agent step '${name}' must reference an agent.`,
+        message: `Agent step '${name}' must reference an agent or provide an inline execution mode (prompt, bash, command, loop, or provider-specific mode).`,
       });
     }
   }
@@ -129,6 +150,22 @@ function validateGraphConnectivity(
   const steps = ir.steps!;
   const stepNames = Object.keys(steps);
 
+  // Build the forward adjacency list, folding in both `next:` (forward) and
+  // `depends_on:` (backward, v0.2) into a single outgoing edge view.
+  const outgoing: Record<string, Set<string>> = {};
+  for (const n of stepNames) outgoing[n] = new Set();
+
+  for (const [from, step] of Object.entries(steps)) {
+    for (const t of getForwardTargets(step)) {
+      if (stepNames.includes(t)) outgoing[from].add(t);
+    }
+    if (step.dependsOn) {
+      for (const source of step.dependsOn) {
+        if (stepNames.includes(source)) outgoing[source].add(from);
+      }
+    }
+  }
+
   // Find entry points: trigger steps, or if none exist the graph must be single-entry
   const triggers = stepNames.filter((n) => steps[n].type === "trigger");
 
@@ -136,13 +173,11 @@ function validateGraphConnectivity(
     // No explicit triggers — warn but don't error (minimal harness)
     // Try to find a natural entry: step that nothing points to
     const targeted = new Set<string>();
-    for (const step of Object.values(steps)) {
-      for (const t of getNextTargets(step)) {
-        targeted.add(t);
-      }
+    for (const from of stepNames) {
+      for (const t of outgoing[from]) targeted.add(t);
     }
     const entries = stepNames.filter((n) => !targeted.has(n));
-    if (entries.length === 0) {
+    if (entries.length === 0 && stepNames.length > 0) {
       warnings.push({
         path: "steps",
         message:
@@ -163,10 +198,8 @@ function validateGraphConnectivity(
       ? triggers
       : stepNames.filter((n) => {
           const targeted = new Set<string>();
-          for (const step of Object.values(steps)) {
-            for (const t of getNextTargets(step)) {
-              targeted.add(t);
-            }
+          for (const from of stepNames) {
+            for (const t of outgoing[from]) targeted.add(t);
           }
           return !targeted.has(n);
         });
@@ -176,11 +209,8 @@ function validateGraphConnectivity(
     const current = queue.pop()!;
     if (reachable.has(current)) continue;
     reachable.add(current);
-    const step = steps[current];
-    if (step) {
-      for (const target of getNextTargets(step)) {
-        queue.push(target);
-      }
+    for (const target of outgoing[current] ?? []) {
+      queue.push(target);
     }
   }
 
@@ -196,6 +226,22 @@ function validateGraphConnectivity(
 
 function validateCycles(ir: Harnessfile, errors: ValidationError[]) {
   const steps = ir.steps!;
+  const stepNames = Object.keys(steps);
+
+  // Build the same outgoing adjacency view used by connectivity — folding
+  // next: and depends_on: into a unified forward graph.
+  const outgoing: Record<string, string[]> = {};
+  for (const n of stepNames) outgoing[n] = [];
+  for (const [from, step] of Object.entries(steps)) {
+    for (const t of getForwardTargets(step)) {
+      if (stepNames.includes(t)) outgoing[from].push(t);
+    }
+    if (step.dependsOn) {
+      for (const source of step.dependsOn) {
+        if (stepNames.includes(source)) outgoing[source].push(from);
+      }
+    }
+  }
 
   // DFS cycle detection — cycles are only allowed for eval loops
   const visited = new Set<string>();
@@ -223,24 +269,22 @@ function validateCycles(ir: Harnessfile, errors: ValidationError[]) {
     visited.add(name);
     inStack.add(name);
 
-    const step = steps[name];
-    if (step) {
-      for (const target of getNextTargets(step)) {
-        dfs(target, [...path, name]);
-      }
+    for (const target of outgoing[name] ?? []) {
+      dfs(target, [...path, name]);
     }
 
     inStack.delete(name);
   }
 
-  for (const name of Object.keys(steps)) {
+  for (const name of stepNames) {
     if (!visited.has(name)) {
       dfs(name, []);
     }
   }
 }
 
-function getNextTargets(step: StepDef): string[] {
+/** Forward edges declared on the source step (next + routes). */
+function getForwardTargets(step: StepDef): string[] {
   const targets: string[] = [];
   if (step.next) {
     if (Array.isArray(step.next)) {
