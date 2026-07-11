@@ -1,104 +1,77 @@
 # Harnessfile
 
-An open, vendor-neutral specification for AI agent **harnesses** — the operational scaffolding around agents (triggers, gates, evals, hooks, memory, observability, security), not the agent definition itself.
+An open, vendor-neutral specification for AI agent **harnesses** — the operational scaffolding around agents (triggers, gates, squads, routing, evals, hooks, memory, observability, security), not the agent definition itself.
 
-> **Status:** v0.1 draft. The spec is stabilizing but not yet frozen.
+> **Status:** v0.2 draft — a pivot from a single YAML file to the `.agents/` directory. See [`spec/v0.2-draft.md`](./spec/v0.2-draft.md) and decisions D39–D49 in [`decisions.md`](./decisions.md).
 
 ## Why a harness spec?
 
-Today every framework (LangGraph, CrewAI, AutoGen, Microsoft Agent Framework, …) defines its own format for *how* agents are orchestrated, gated, evaluated, and observed. Agent definitions move between frameworks via specs like Oracle Agent Spec; tool calls move via MCP; agent-to-agent calls move via A2A. **The harness layer has no standard.**
+The industry standardized the layers around the harness: **AGENTS.md** won project guidance, **Agent Skills (SKILL.md)** won skills, **MCP** connects agents to tools, **A2A** connects agents to agents. But the harness itself — the graph of agents and squads, the triggers, the human gates, the routing, the ownership boundary between what is versioned and what the platform runs — remains proprietary in every tool and platform.
 
-Harnessfile fills that gap. Define your harness once in YAML and deploy it on top of any runtime — through providers, the same way Terraform decouples infrastructure-as-code from cloud APIs.
+Harnessfile fills that gap. Define your harness once, as files in your repo, and:
 
-- **Complementary** to Oracle Agent Spec (agent definition), Anthropic MCP (tools), and Google A2A (agent communication)
-- **Inspired by** Terraform (declarative, provider-pluggable) and Docker Compose (simple YAML, progressive complexity)
-- **Framework-agnostic**: deployable to LangGraph, CrewAI, or any custom runtime via harness providers
+- **`harnessfile sync`** — compile/push the definition to the environments you use: Multica, Claude Code, Cursor, Codex, Gemini CLI, GitHub Agent HQ — honoring each target's ownership of operational config (model, runtime, secrets).
+- **`harnessfile up`** — run the harness headless, bound to the systems your team already has in production (Jira, Linear, GitHub, Slack) — no new UI to adopt.
+
+Design lineage: Terraform (declarative, provider-pluggable), Docker Compose (simple, progressive complexity).
+
+- **Complementary** to AGENTS.md (guidance), Agent Skills (skills), Oracle Agent Spec (agent definition), MCP (tools), A2A (agent communication)
+- **Adopts what won**: SKILL.md and AGENTS.md are used unchanged; agent role cards follow the Markdown+frontmatter convention Claude Code, Cursor, and Gemini CLI already read
+- **Specifies what didn't exist**: `harness.yaml`, squads, scheduled triggers, target ownership
 
 ## Minimal example
 
-A valid harness can be as small as this:
+A harness is the `.agents/` directory. The smallest useful one is two files:
 
 ```yaml
-harnessfile: "0.1"
-agents:
-  my-agent:
-    model: anthropic/claude-sonnet-4-6
-    instructions: Do something useful.
-```
+# .agents/harness.yaml
+harnessfile: "0.2"
+name: sentry-triage
 
-Three concepts: version, an agents map, and one agent. Everything else is optional.
-
-## Growing the harness
-
-Add a webhook trigger and a two-step pipeline with a human gate and an eval loop:
-
-```yaml
-harnessfile: "0.1"
-
-agents:
-  researcher:
-    model: anthropic/claude-sonnet-4-6
-    instructions: Research the problem space thoroughly.
-    tools:
-      - mcp: ./tools/web-search.json
-
-  writer:
-    model: anthropic/claude-sonnet-4-6
-    instructions: Write a detailed report from the research.
-
+triggers:
+  hourly-sweep:
+    schedule: "0 * * * *"
+    prompt: Run a Sentry triage sweep. File genuine bugs only.
+    next: triage
 steps:
-  start:
-    type: trigger
-    event: webhook
-    next: research
-
-  research:
-    agent: researcher
-    next: review
-
-  review:
-    type: gate
-    approve: human
-    provider: slack/v1
-    channel: "#approvals"
-    timeout: 1h
-    fallback: reject
-    next: write
-
-  write:
-    agent: writer
-    eval:
-      - metric: llm-judge
-        prompt: "Is this report complete and well-structured?"
-        pass: 0.8
-    max-iterations: 3
+  triage:
+    agent: triager
 ```
 
-See [`examples/`](./examples/) for more, and [`spec/v0.1-draft.md`](./spec/v0.1-draft.md) for the full specification.
+```markdown
+<!-- .agents/agents/triager.md -->
+---
+name: triager
+description: Triages Sentry issues into actionable bug reports.
+model: anthropic/claude-sonnet-4-6
+---
+You triage Sentry issues. Deduplicate by issue id, ignore noise, file genuine bugs to the backlog.
+```
 
 ## Core ideas
 
-- **Everything is a node in a graph.** Triggers, agents, gates, and outputs are all nodes. `next` defines the edges.
-- **Polymorphic `next`.** A single edge for sequential, a list for parallel fan-out. Fan-in is implicit when multiple nodes converge on the same target.
-- **Coordination patterns are first-class.** Built-in step types: `router`, `orchestrator`, `gate`, `trigger`, `output`. Pipelines and parallel execution emerge from the graph itself.
-- **Providers everywhere.** Every component (gate, eval, trigger, observability, memory, security) is provider-backed. Standard interfaces; vendor extensions via `x-` fields.
-- **Defaults over config.** Every field has a sensible default. Progressive disclosure — encounter complexity only when you need it.
-- **Variables.** Docker Compose-style `${VAR:-default}` substitution from the environment.
+- **The spec is a directory.** `harness.yaml` + `agents/*.md` + `skills/*/SKILL.md` + `squads/*.md`, versioned and reviewed like code.
+- **Everything is a node in a graph.** Triggers, agents, squads, gates, and outputs are nodes; polymorphic `next` defines edges; fan-in is implicit.
+- **Squads are agent-compatible.** A squad (leader + members + orchestration instructions) can be used anywhere an agent can. Explicit graphs and leader-orchestration coexist.
+- **Definition is portable; operations belong to the environment.** Targets declare which fields they `own`; sync seeds them at bootstrap and never overwrites them. Secrets are never in the repo.
+- **Providers everywhere.** Every component — trigger, gate, eval, memory, observability, target — is provider-backed with standard interfaces.
+- **Defaults over config, progressive disclosure.**
 
 ## Repository layout
 
 | Path | Contents |
 |---|---|
-| [`spec/v0.1-draft.md`](./spec/v0.1-draft.md) | The current draft specification |
+| [`spec/v0.2-draft.md`](./spec/v0.2-draft.md) | The current draft specification |
+| [`spec/v0.1-draft.md`](./spec/v0.1-draft.md) | Superseded; extended reference for the graph model and interfaces |
 | [`decisions.md`](./decisions.md) | Chronological design decision record |
-| [`reviews/`](./reviews/) | Independent reviews of the v0.1 draft (applicability, compatibility, completeness, simplicity) |
-| [`examples/`](./examples/) | Example Harnessfile YAMLs, from minimal to full pipeline |
-| [`packages/cli`](./packages/cli) | CLI runtime with a LangGraph harness provider |
-| [`ui`](./ui) | Visual editor (React) for Harnessfile |
+| [`reviews/`](./reviews/) | Reviews of the v0.1 draft + 2026-07 industry research |
+| [`examples/`](./examples/) | Examples (v0.1 format; v0.2 examples in progress) |
+| [`packages/cli`](./packages/cli) | CLI runtime with a LangGraph harness provider (being adapted to v0.2) |
+| [`ui`](./ui) | Visual editor (React) — frozen until the v0.2 spec stabilizes |
 
 ## Status
 
-v0.1 is a **draft**. It is intended to be production-usable — teams should be able to deploy against it — but breaking changes may still happen before it is frozen.
+v0.2 is a **draft**. The first implementation milestone is expressing a real production harness (a 9-agent development squad with risk×ambiguity routing) and syncing it to Multica, Claude Code, Cursor, and Codex.
 
 Feedback, issues, and PRs are welcome.
 

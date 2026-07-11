@@ -34,8 +34,9 @@ Source: Main conversation
 ### D5: Balance expressiveness with simplicity
 **Decision:** "I want to reach a good balance between being expressive and extensible, and being simple to read and maintain by humans and AIs. I want to start with the minimum, but out of the box we could support everything that Oracle Agent Spec defines, but in a vendor-neutral and less bureaucratic way."
 
-### D6: Include inline agent definition
+### D6: Include inline agent definition [amended by D39]
 **Decision:** After initially wanting agents as pure external references ("everything that is not the agent definition"), user realized this creates a chicken-and-egg problem — "it seems insufficient actually, because how will this agent.yaml work?" Decided to include a minimal inline agent format (model + instructions + tools) while supporting external formats via providers.
+**Amended:** The self-contained-in-repo motivation stands, but the built-in format changed from inline YAML to Markdown + frontmatter role-card files in `agents/` (D39).
 **User quote:** "I think we can create our own simple agent spec for our case, but our harness spec needs to be compatible with any format through providers just like Terraform already works."
 
 ### D7: Agent definition as a default provider
@@ -112,8 +113,9 @@ Source: Meta-review worktree conversation
 ### D23: Explicit provider resolution with shorthand
 **Decision:** No magic inference (`#channel` = Slack is gone). All providers are explicit. Shorthand (`slack/v1`) when only provider matters, full object form when fields needed.
 
-### D24: Project name and package — Harnessfile
+### D24: Project name and package — Harnessfile [amended by D43]
 **Decision:** Rename the project from "OpenHarness" to **Harnessfile**. Follows the `Dockerfile`/`Makefile`/`Procfile`/`Vagrantfile` convention. The config file becomes `Harnessfile` (or `harnessfile.yaml`). Version key in the file is `harnessfile: "0.1"`. CLI tool and package name: `harnessfile` (available on both npm and PyPI).
+**Amended:** Project/CLI/package name stands. The config file location/name is superseded — the canonical file is `.agents/harness.yaml` (D39, D43).
 **Rationale:** "I don't want to call it agentfile, we're defining the harness not the agent." `harness` was taken on both npm and PyPI. `harness-cli` on npm is taken by an AI agent orchestration project.
 **Resolves:** D2 (name was unresolved since Session 1).
 
@@ -181,12 +183,70 @@ Source: Implementation worktree
 
 ---
 
+## Session 5 — Industry research and the v0.2 pivot (2026-07-11)
+
+Source: Main conversation. Context: the project was stale since 2026-04-11. Deep web research
+(see `reviews/2026-07-industry-research.md`) plus a full exploration of the AltaVox production harness
+(`../altavox`) informed a structured interview with the user. Decisions below came from that interview.
+
+### D39: Pivot — the spec is the `.agents/` directory
+**Decision:** Harnessfile v0.2 specifies the **`.agents/` directory** as the unit of definition, not a single root YAML file. Layout:
+```
+.agents/
+├── harness.yaml          # the harness: triggers, gates, graph, routing, targets
+├── agents/<slug>.md      # role cards — Markdown + YAML frontmatter
+├── skills/<name>/SKILL.md # Agent Skills open standard, adopted as-is
+└── squads/<slug>.md      # leader + members + orchestration instructions
+```
+**Rationale:** The industry converged on Markdown+frontmatter entities and the `.agents/` path (Codex, Cursor, and Gemini CLI read `.agents/skills/` natively); the directory itself has no formal spec — only community drafts. The AltaVox production harness already works this way. The harness layer (everything in `harness.yaml`) is the part no standard covers.
+**Impact:** Amends D6 (built-in agent format is now Markdown role cards, not inline YAML) and D24 (file location). The provider model (D7, D8), graph model (D31–D33), and all standard interfaces carry over into `harness.yaml`.
+
+### D40: Squads are agent-compatible orchestrator nodes
+**Decision:** A squad (leader agent + members + orchestration instructions as the file body) can be used **anywhere an agent can** — as a graph step, a trigger target, etc. The leader orchestrates members internally according to its instructions; the graph does not model the squad's internals.
+**User note:** "squads são um bom conceito... eles podem entrar em qualquer lugar onde hoje entra um agente (é um padrão de coordenação orquestrador)."
+**Impact:** Squads become the orchestrator coordination pattern. The v0.1 `type: orchestrator` step (agent + pool) is superseded by referencing a squad. Explicit graph and leader-orchestration coexist: the graph is optional; a harness can be a single squad reference.
+
+### D41: Autopilots unify into triggers
+**Decision:** No separate autopilot entity in the spec. A trigger node may declare `schedule` (cron) + `timezone` and a `prompt` (inline or a path to a Markdown file). AltaVox/Multica-style `autopilots/*.md` compile to scheduled triggers on sync.
+**Rationale:** One concept instead of two overlapping ones; keeps the unified graph (D31).
+
+### D42: Ownership boundary — portable defaults + target-owned fields
+**Decision:** Entity files MAY declare portable defaults (e.g., `model`) useful for local tools and the headless runtime. In `harness.yaml`, each sync target declares which fields it **owns** (e.g., `owns: [model, runtime, concurrency, env]`). Owned fields are set once at bootstrap (first push, using the portable default if present) and **never overwritten by subsequent syncs** (bootstrap-then-hands-off). Secrets are never in the repo (reaffirms D27).
+**Rationale:** Formalizes the boundary proven by AltaVox's `multica-push.py`: git owns definition, the environment owns operational config.
+
+### D43: Naming after the pivot
+**Decision:** The project, CLI, spec, and packages remain **Harnessfile** (D24's name stands — npm/PyPI secured). The canonical file is `.agents/harness.yaml` (extension kept for editor/tooling support). Precedent: Terraform's config files are not named `terraform`.
+
+### D44: Ecosystem posture — own spec, compatible and ambitious
+**Decision:** Publish the Harnessfile spec of the `.agents/` directory as a candidate standard. Adopt **SKILL.md** (Agent Skills) and **AGENTS.md** as-is; specify `agents/*.md` using the Markdown+frontmatter plurality convention (Claude Code / Cursor / Gemini CLI compatible); add `harness.yaml` and `squads/` where no standard exists. Engage the community ".agents Protocol" draft author; aim for AAIF/Linux Foundation alignment later — without waiting for anyone.
+
+### D45: CLI dual mode — sync + headless runtime
+**Decision:** Two modes: (1) **`harnessfile sync`** compiles/pushes the definition to targets (Multica, `.claude/` symlinks, Codex TOML, `.github/agents/`, …) honoring D42 ownership; (2) **`harnessfile up`** runs the headless orchestrator that binds triggers/gates to systems already in production (Jira/Linear/GitHub/Slack via providers) and drives agent runtimes. Extends D35; the LangGraph engine (D37) powers `up`.
+**Rationale:** Sync delivers value immediately and generalizes proven AltaVox tooling; `up` is the "Multica without UI lock-in" differentiator.
+
+### D46: v0.2 integration targets
+**Decision:** First wave, all four: (1) **Multica** sync provider; (2) **local code tools** — Claude Code (`.claude/` symlinks), Cursor/Gemini (native `.agents/`), Codex (TOML subagent generation); (3) **GitHub Agent HQ** (`.github/agents/*.md`); (4) **production boards/chat** — Jira, Linear, GitHub, Slack trigger/gate providers for the headless runtime.
+
+### D47: First implementation milestone — AltaVox as the flagship case
+**Decision:** Express the AltaVox harness in `.agents/harness.yaml` and make `harnessfile sync` generate/maintain its targets, generalizing the production-proven `multica-push.py`/pull scripts into the official Multica provider. Validates the spec against a real harness before anything else.
+
+### D48: v0.1 assets — adapt CLI, pause UI
+**Decision:** `packages/cli`'s parser/runtime is adapted to read the `.agents/` directory (becomes the basis of `up`). The `ui/` visual editor is frozen until the v0.2 spec stabilizes, then updated to the new format. Nothing is deleted.
+
+### D49: Version continuity — v0.2 with a pivot note
+**Decision:** Publish as `spec/v0.2-draft.md`; `spec/v0.1-draft.md` gets a superseded banner. Decision numbering continues (no reboot). Rationale: the repo was never widely announced; the change cost is internal.
+
+---
+
 ## Open Items
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | **Import/compose mechanism** — multi-file harnesses. All reviews suggest deferring to v0.2. | DEFERRED to v0.2 |
-| 2 | **Dynamic fan-out** — map-reduce pattern (N instances from runtime state). | DEFERRED to v0.2 |
-| 3 | **Provider version pinning / lockfile** — reproducible harness execution. | DEFERRED to v0.2 |
-| 4 | **JSON Schema** — needs to be written (D28). | TODO |
+| 1 | **Import/compose mechanism** — multi-file harnesses. Partially resolved by the directory pivot (D39); cross-repo composition still open. | OPEN |
+| 2 | **Dynamic fan-out** — map-reduce pattern (N instances from runtime state). | DEFERRED |
+| 3 | **Provider version pinning / lockfile** — reproducible harness execution. | DEFERRED |
+| 4 | **JSON Schema** — needs to be written against v0.2 (D28). | TODO |
 | 5 | **GitHub repo rename** — rename openharness to harnessfile (D29). | TODO |
+| 6 | **Codex TOML subagent generator** — the one missing translation in the AltaVox setup (D46). | TODO |
+| 7 | **Track MCP 2026-07-28 final spec** (publishes Jul 28) before freezing gate/HITL and observability interfaces. | WATCH |
+| 8 | **Engage ".agents Protocol" community draft author** (D44). | TODO |
