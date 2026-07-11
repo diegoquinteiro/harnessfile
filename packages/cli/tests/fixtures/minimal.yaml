@@ -1,5 +1,0 @@
-harnessfile: "0.1"
-agents:
-  my-agent:
-    model: anthropic/claude-sonnet-4-6
-    instructions: Do something useful.

@@ -1,21 +1,25 @@
-import type { Harnessfile, StepDef } from "../ir/types.js";
+import { KNOWN_OWNED_FIELDS, type Harnessfile, type StepDef } from "../ir/types.js";
 import type {
   ValidationResult,
   ValidationError,
   ValidationWarning,
 } from "../providers/interface.js";
 
-// Structural validation of a normalized Harnessfile IR.
-// Checks graph connectivity, reference integrity, and cycle constraints.
+// Structural validation of a normalized Harnessfile IR (spec v0.2).
+// Checks version, entity integrity, graph connectivity, reference integrity,
+// cycle constraints, squads, skills, scheduled triggers, and targets.
 
 export function validateHarnessfile(ir: Harnessfile): ValidationResult {
   const errors: ValidationError[] = [];
   const warnings: ValidationWarning[] = [];
 
   validateVersion(ir, errors);
-  validateAgents(ir, errors);
+  validateName(ir, errors);
+  validateAgents(ir, errors, warnings);
+  validateSquads(ir, errors);
+  validateTargets(ir, errors, warnings);
   if (ir.steps) {
-    validateStepRefs(ir, errors);
+    validateStepRefs(ir, errors, warnings);
     validateGraphConnectivity(ir, errors, warnings);
     validateCycles(ir, errors);
   }
@@ -24,41 +28,138 @@ export function validateHarnessfile(ir: Harnessfile): ValidationResult {
 }
 
 function validateVersion(ir: Harnessfile, errors: ValidationError[]) {
-  if (ir.version !== "0.1") {
+  if (ir.version !== "0.2") {
     errors.push({
       path: "harnessfile",
-      message: `Unsupported version "${ir.version}". Only "0.1" is supported.`,
+      message: `Unsupported version "${ir.version}". Only "0.2" is supported.`,
     });
   }
 }
 
-function validateAgents(ir: Harnessfile, errors: ValidationError[]) {
+function validateName(ir: Harnessfile, errors: ValidationError[]) {
+  if (!ir.name) {
+    errors.push({
+      path: "name",
+      message: "Harness name is required.",
+    });
+  }
+}
+
+function validateAgents(
+  ir: Harnessfile,
+  errors: ValidationError[],
+  warnings: ValidationWarning[],
+) {
   if (Object.keys(ir.agents).length === 0) {
     errors.push({
       path: "agents",
-      message: "At least one agent must be defined.",
+      message: "At least one agent must be defined in agents/.",
     });
   }
+  const skillNames = new Set(ir.skills ?? []);
   for (const [name, agent] of Object.entries(ir.agents)) {
-    if (!agent.model) {
+    if (!agent.description) {
       errors.push({
-        path: `agents.${name}.model`,
-        message: `Agent '${name}' is missing a model.`,
+        path: `agents.${name}.description`,
+        message: `Agent '${name}' is missing a description.`,
       });
     }
     if (!agent.instructions) {
       errors.push({
         path: `agents.${name}.instructions`,
-        message: `Agent '${name}' is missing instructions.`,
+        message: `Agent '${name}' is missing instructions (the Markdown body).`,
+      });
+    }
+    for (const skill of agent.skills ?? []) {
+      if (!skillNames.has(skill)) {
+        errors.push({
+          path: `agents.${name}.skills`,
+          message: `Agent '${name}' references skill '${skill}' with no skills/${skill}/SKILL.md.`,
+        });
+      }
+    }
+  }
+}
+
+function validateSquads(ir: Harnessfile, errors: ValidationError[]) {
+  if (!ir.squads) return;
+  const agentNames = new Set(Object.keys(ir.agents));
+
+  for (const [name, squad] of Object.entries(ir.squads)) {
+    if (!squad.leader) {
+      errors.push({
+        path: `squads.${name}.leader`,
+        message: `Squad '${name}' is missing a leader.`,
+      });
+      continue;
+    }
+    if (!agentNames.has(squad.leader)) {
+      errors.push({
+        path: `squads.${name}.leader`,
+        message: `Squad '${name}' leader '${squad.leader}' is not a defined agent.`,
+      });
+    }
+    if (squad.members.length === 0) {
+      errors.push({
+        path: `squads.${name}.members`,
+        message: `Squad '${name}' has no members.`,
+      });
+    }
+    for (const member of squad.members) {
+      if (!agentNames.has(member.agent)) {
+        errors.push({
+          path: `squads.${name}.members`,
+          message: `Squad '${name}' member '${member.agent}' is not a defined agent.`,
+        });
+      }
+    }
+    if (
+      squad.members.length > 0 &&
+      !squad.members.some((m) => m.agent === squad.leader)
+    ) {
+      errors.push({
+        path: `squads.${name}.leader`,
+        message: `Squad '${name}' leader '${squad.leader}' must also appear in members.`,
       });
     }
   }
 }
 
-function validateStepRefs(ir: Harnessfile, errors: ValidationError[]) {
+function validateTargets(
+  ir: Harnessfile,
+  errors: ValidationError[],
+  warnings: ValidationWarning[],
+) {
+  if (!ir.targets) return;
+  const knownFields = new Set<string>(KNOWN_OWNED_FIELDS);
+
+  for (const [name, target] of Object.entries(ir.targets)) {
+    if (!target.provider) {
+      errors.push({
+        path: `targets.${name}.provider`,
+        message: `Target '${name}' is missing a provider.`,
+      });
+    }
+    for (const field of target.owns ?? []) {
+      if (!knownFields.has(field)) {
+        warnings.push({
+          path: `targets.${name}.owns`,
+          message: `Target '${name}' owns unknown field '${field}'. Known fields: ${[...knownFields].join(", ")}.`,
+        });
+      }
+    }
+  }
+}
+
+function validateStepRefs(
+  ir: Harnessfile,
+  errors: ValidationError[],
+  warnings: ValidationWarning[],
+) {
   const steps = ir.steps!;
   const stepNames = new Set(Object.keys(steps));
   const agentNames = new Set(Object.keys(ir.agents));
+  const squadNames = new Set(Object.keys(ir.squads ?? {}));
 
   for (const [name, step] of Object.entries(steps)) {
     // Agent reference
@@ -66,6 +167,21 @@ function validateStepRefs(ir: Harnessfile, errors: ValidationError[]) {
       errors.push({
         path: `steps.${name}.agent`,
         message: `Step '${name}' references undefined agent '${step.agent}'.`,
+      });
+    }
+
+    // Squad reference
+    if (step.squad && !squadNames.has(step.squad)) {
+      errors.push({
+        path: `steps.${name}.squad`,
+        message: `Step '${name}' references undefined squad '${step.squad}'.`,
+      });
+    }
+
+    if (step.agent && step.squad) {
+      errors.push({
+        path: `steps.${name}`,
+        message: `Step '${name}' declares both agent and squad — pick one.`,
       });
     }
 
@@ -96,7 +212,15 @@ function validateStepRefs(ir: Harnessfile, errors: ValidationError[]) {
       }
     }
 
-    // Pool references
+    // Orchestrator is superseded by squads in v0.2 — still parsed, but flagged
+    if (step.type === "orchestrator") {
+      warnings.push({
+        path: `steps.${name}`,
+        message: `Step '${name}': type 'orchestrator' is superseded by squads in v0.2. Define a squad in squads/ and reference it with 'squad: <name>'.`,
+      });
+    }
+
+    // Pool references (legacy orchestrator)
     if (step.pool) {
       for (const agentRef of step.pool) {
         if (!agentNames.has(agentRef)) {
@@ -108,14 +232,27 @@ function validateStepRefs(ir: Harnessfile, errors: ValidationError[]) {
       }
     }
 
-    // Agent step must have an agent (unless it's a special type)
-    if (
-      step.type === "agent" &&
-      !step.agent
-    ) {
+    // Scheduled trigger constraints (D41)
+    if (step.type === "trigger" && step.schedule && !step.next) {
+      errors.push({
+        path: `steps.${name}.next`,
+        message: `Scheduled trigger '${name}' must declare a next step.`,
+      });
+    }
+
+    // Agent step must reference an agent
+    if (step.type === "agent" && !step.agent) {
       errors.push({
         path: `steps.${name}`,
         message: `Agent step '${name}' must reference an agent.`,
+      });
+    }
+
+    // Squad step must reference a squad
+    if (step.type === "squad" && !step.squad) {
+      errors.push({
+        path: `steps.${name}`,
+        message: `Squad step '${name}' must reference a squad.`,
       });
     }
   }

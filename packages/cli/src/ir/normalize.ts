@@ -1,6 +1,9 @@
 import type {
   Harnessfile,
   AgentDef,
+  SquadDef,
+  SquadMember,
+  TargetDef,
   StepDef,
   StepType,
   EvalDef,
@@ -12,27 +15,84 @@ import type {
   SecurityDef,
   ResilienceDef,
   ToolRef,
+  ProviderRef,
 } from "./types.js";
 
-// Normalizes a raw parsed YAML object into a typed Harnessfile IR.
-// Handles kebab-case → camelCase, default inference, and shorthand expansion.
+// Normalizes a raw parsed harness (assembled from the .agents/ directory) into a typed IR.
+// Handles kebab-case → camelCase, default inference, shorthand expansion, and the
+// `triggers:` sugar (merged into steps as type: trigger).
+
+const AGENT_KNOWN_KEYS = new Set([
+  "name",
+  "description",
+  "model",
+  "instructions",
+  "tools",
+  "skills",
+]);
+
+const SQUAD_KNOWN_KEYS = new Set([
+  "name",
+  "description",
+  "leader",
+  "members",
+  "instructions",
+]);
 
 export function normalize(raw: Record<string, unknown>): Harnessfile {
   const version = expectString(raw, "harnessfile", "harnessfile version");
   const name = optString(raw, "name");
 
-  const rawAgents = expectObject(raw, "agents", "agents map");
+  const rawAgents = optObject(raw, "agents") ?? {};
   const agents: Record<string, AgentDef> = {};
   for (const [key, value] of Object.entries(rawAgents)) {
     agents[key] = normalizeAgent(value, key);
   }
 
+  let squads: Record<string, SquadDef> | undefined;
+  const rawSquads = optObject(raw, "squads");
+  if (rawSquads && Object.keys(rawSquads).length > 0) {
+    squads = {};
+    for (const [key, value] of Object.entries(rawSquads)) {
+      squads[key] = normalizeSquad(value, key);
+    }
+  }
+
+  const skills = Array.isArray(raw["skills"])
+    ? (raw["skills"] as string[])
+    : undefined;
+
+  // Steps + triggers sugar
   let steps: Record<string, StepDef> | undefined;
   const rawSteps = optObject(raw, "steps");
-  if (rawSteps) {
+  const rawTriggers = optObject(raw, "triggers");
+  if (rawSteps || rawTriggers) {
     steps = {};
-    for (const [key, value] of Object.entries(rawSteps)) {
-      steps[key] = normalizeStep(value, key);
+    if (rawTriggers) {
+      for (const [key, value] of Object.entries(rawTriggers)) {
+        const step = normalizeStep(value, key);
+        step.type = "trigger";
+        steps[key] = step;
+      }
+    }
+    if (rawSteps) {
+      for (const [key, value] of Object.entries(rawSteps)) {
+        if (steps[key]) {
+          throw new Error(
+            `Step '${key}' is defined both in triggers and steps`,
+          );
+        }
+        steps[key] = normalizeStep(value, key);
+      }
+    }
+  }
+
+  let targets: Record<string, TargetDef> | undefined;
+  const rawTargets = optObject(raw, "targets");
+  if (rawTargets) {
+    targets = {};
+    for (const [key, value] of Object.entries(rawTargets)) {
+      targets[key] = normalizeTarget(value, key);
     }
   }
 
@@ -40,7 +100,10 @@ export function normalize(raw: Record<string, unknown>): Harnessfile {
     version,
     name,
     agents,
+    squads,
+    skills,
     steps,
+    targets,
     hooks: raw["hooks"] ? normalizeHooks(raw["hooks"]) : undefined,
     observability: raw["observability"]
       ? normalizeObservability(raw["observability"] as Record<string, unknown>)
@@ -61,23 +124,66 @@ export function normalize(raw: Record<string, unknown>): Harnessfile {
 
 function normalizeAgent(raw: unknown, name: string): AgentDef {
   const obj = asObject(raw, `agent '${name}'`);
-  return {
-    model: expectString(obj, "model", `agent '${name}' model`),
-    instructions: expectString(
-      obj,
-      "instructions",
-      `agent '${name}' instructions`,
-    ),
+  const agent: AgentDef = {
+    name: optString(obj, "name") ?? name,
+    description: optString(obj, "description"),
+    model: optString(obj, "model"),
+    instructions: optString(obj, "instructions") ?? "",
     tools: obj["tools"] ? normalizeTools(obj["tools"] as unknown[]) : undefined,
     skills: obj["skills"] ? (obj["skills"] as string[]) : undefined,
   };
+  const passthrough = collectPassthrough(obj, AGENT_KNOWN_KEYS);
+  if (passthrough) agent.passthrough = passthrough;
+  return agent;
 }
 
 function normalizeTools(raw: unknown[]): ToolRef[] {
   return raw.map((t) => {
+    if (typeof t === "string") return t;
     const obj = t as Record<string, unknown>;
     return { mcp: obj["mcp"] as string };
   });
+}
+
+// ---- Squads ----
+
+function normalizeSquad(raw: unknown, name: string): SquadDef {
+  const obj = asObject(raw, `squad '${name}'`);
+  const members: SquadMember[] = Array.isArray(obj["members"])
+    ? (obj["members"] as unknown[]).map((m) => {
+        const mo = asObject(m, `squad '${name}' member`);
+        return {
+          agent: mo["agent"] as string,
+          role: optString(mo, "role"),
+        };
+      })
+    : [];
+  const squad: SquadDef = {
+    name: optString(obj, "name") ?? name,
+    description: optString(obj, "description"),
+    leader: (optString(obj, "leader") ?? "") as string,
+    members,
+    instructions: optString(obj, "instructions") ?? "",
+  };
+  const passthrough = collectPassthrough(obj, SQUAD_KNOWN_KEYS);
+  if (passthrough) squad.passthrough = passthrough;
+  return squad;
+}
+
+// ---- Targets ----
+
+function normalizeTarget(raw: unknown, name: string): TargetDef {
+  const obj = asObject(raw, `target '${name}'`);
+  const target: TargetDef = {
+    provider: obj["provider"] as string | ProviderRef | undefined,
+    owns: Array.isArray(obj["owns"]) ? (obj["owns"] as string[]) : undefined,
+  };
+  const extra: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (key.startsWith("x-")) extra[key] = value;
+  }
+  if (Object.keys(extra).length > 0) target.extra = extra;
+  return target;
 }
 
 // ---- Steps ----
@@ -89,6 +195,7 @@ function normalizeStep(raw: unknown, name: string): StepDef {
   const step: StepDef = { type };
 
   if (obj["agent"] != null) step.agent = obj["agent"] as string;
+  if (obj["squad"] != null) step.squad = obj["squad"] as string;
   if (obj["next"] != null) step.next = obj["next"] as string | string[];
   if (obj["context"] != null) step.context = obj["context"] as string;
   if (obj["output"] != null)
@@ -109,6 +216,11 @@ function normalizeStep(raw: unknown, name: string): StepDef {
   // Trigger
   if (obj["event"] != null) step.event = obj["event"] as string;
   if (obj["filter"] != null) step.filter = obj["filter"] as string;
+  if (obj["schedule"] != null) step.schedule = obj["schedule"] as string;
+  if (obj["timezone"] != null) step.timezone = obj["timezone"] as string;
+  if (obj["prompt"] != null) step.prompt = obj["prompt"] as string;
+  if (obj["promptPath"] != null)
+    step.promptPath = obj["promptPath"] as string;
 
   // Gate
   if (obj["approve"] != null) step.approve = obj["approve"] as "human";
@@ -120,7 +232,7 @@ function normalizeStep(raw: unknown, name: string): StepDef {
   if (obj["routes"] != null)
     step.routes = obj["routes"] as Record<string, string>;
 
-  // Orchestrator
+  // Orchestrator (v0.1 legacy)
   if (obj["pool"] != null) step.pool = obj["pool"] as string[];
   if (obj["max-agents"] != null) step.maxAgents = obj["max-agents"] as number;
 
@@ -129,7 +241,8 @@ function normalizeStep(raw: unknown, name: string): StepDef {
     step.input = obj["input"] as Record<string, string>;
 
   // Provider
-  if (obj["provider"] != null) step.provider = obj["provider"] as string;
+  if (obj["provider"] != null)
+    step.provider = obj["provider"] as string | ProviderRef;
 
   // Per-step hooks
   if (obj["hooks"] != null) step.hooks = normalizeHooks(obj["hooks"]);
@@ -139,9 +252,11 @@ function normalizeStep(raw: unknown, name: string): StepDef {
 
 function inferStepType(obj: Record<string, unknown>): StepType {
   if (obj["type"] != null) return obj["type"] as StepType;
+  if (obj["schedule"] != null) return "trigger";
   if (obj["event"] != null) return "trigger";
   if (obj["approve"] != null) return "gate";
   if (obj["routes"] != null) return "router";
+  if (obj["squad"] != null) return "squad";
   if (obj["pool"] != null) return "orchestrator";
   if (obj["input"] != null && obj["agent"] == null) return "output";
   return "agent";
@@ -270,6 +385,17 @@ function normalizeResilience(obj: Record<string, unknown>): ResilienceDef {
 
 // ---- Helpers ----
 
+function collectPassthrough(
+  obj: Record<string, unknown>,
+  known: Set<string>,
+): Record<string, unknown> | undefined {
+  const passthrough: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (!known.has(key)) passthrough[key] = value;
+  }
+  return Object.keys(passthrough).length > 0 ? passthrough : undefined;
+}
+
 function asObject(
   raw: unknown,
   label: string,
@@ -298,18 +424,6 @@ function optString(
 ): string | undefined {
   const val = obj[key];
   return typeof val === "string" ? val : undefined;
-}
-
-function expectObject(
-  obj: Record<string, unknown>,
-  key: string,
-  label: string,
-): Record<string, unknown> {
-  const val = obj[key];
-  if (val == null || typeof val !== "object" || Array.isArray(val)) {
-    throw new Error(`${label} is required and must be a mapping`);
-  }
-  return val as Record<string, unknown>;
 }
 
 function optObject(

@@ -1,6 +1,4 @@
-import { resolve } from "node:path";
-import { resolveHarnessfilePath, parseHarnessfile } from "../parser/parse.js";
-import { normalize } from "../ir/normalize.js";
+import { loadHarnessDirectory } from "../parser/directory.js";
 import { validateHarnessfile } from "../validator/validate.js";
 import { getProvider } from "../providers/registry.js";
 import { logInfo, logWarn, logError } from "../runtime/logger.js";
@@ -10,18 +8,20 @@ export interface ValidateOptions {
 }
 
 export async function validate(
-  file: string | undefined,
+  path: string | undefined,
   options: ValidateOptions,
 ): Promise<void> {
   try {
-    const filePath = resolveHarnessfilePath(file);
-    logInfo(`Loaded ${resolve(filePath)}`);
-
-    const raw = parseHarnessfile(filePath);
-    const ir = normalize(raw as Record<string, unknown>);
+    const harness = loadHarnessDirectory(path);
+    logInfo(`Loaded ${harness.harnessPath}`);
+    logInfo(
+      `Parsed ${Object.keys(harness.ir.agents).length} agent(s), ` +
+        `${Object.keys(harness.ir.squads ?? {}).length} squad(s), ` +
+        `${(harness.ir.skills ?? []).length} skill(s)`,
+    );
 
     // Structural validation
-    const result = validateHarnessfile(ir);
+    const result = validateHarnessfile(harness.ir);
 
     for (const warning of result.warnings) {
       logWarn(`${warning.path}: ${warning.message}`);
@@ -38,7 +38,7 @@ export async function validate(
     // Provider compatibility check
     if (options.provider) {
       const provider = getProvider(options.provider);
-      const providerResult = provider.validate(ir);
+      const providerResult = provider.validate(harness.ir);
 
       for (const warning of providerResult.warnings) {
         logWarn(`[${options.provider}] ${warning.path}: ${warning.message}`);
@@ -57,7 +57,7 @@ export async function validate(
       logInfo(`Compatible with provider: ${provider.displayName}`);
     }
 
-    logInfo("Harnessfile is valid");
+    logInfo("Harness is valid");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     logError(message);

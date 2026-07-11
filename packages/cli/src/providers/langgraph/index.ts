@@ -22,8 +22,17 @@ export class LangGraphProvider implements HarnessProvider {
     const errors: ValidationResult["errors"] = [];
     const warnings: ValidationResult["warnings"] = [];
 
-    // Check that all agent models use supported providers
+    // Check that all agent models use supported providers.
+    // Models are optional portable defaults in v0.2 (targets may own them), but
+    // this runtime executes agents itself — warn when a model is missing.
     for (const [name, agent] of Object.entries(ir.agents)) {
+      if (!agent.model) {
+        warnings.push({
+          path: `agents.${name}.model`,
+          message: `Agent '${name}' has no portable model default — required if this agent runs on the langgraph runtime.`,
+        });
+        continue;
+      }
       const slash = agent.model.indexOf("/");
       if (slash === -1) {
         errors.push({
@@ -41,7 +50,7 @@ export class LangGraphProvider implements HarnessProvider {
       }
     }
 
-    // Check that agent steps reference valid agents
+    // Check that agent/squad steps reference valid entities
     if (ir.steps) {
       for (const [name, step] of Object.entries(ir.steps)) {
         if (
@@ -54,6 +63,16 @@ export class LangGraphProvider implements HarnessProvider {
             message: `References undefined agent '${step.agent}'.`,
           });
         }
+        if (
+          step.type === "squad" &&
+          step.squad &&
+          !ir.squads?.[step.squad]
+        ) {
+          errors.push({
+            path: `steps.${name}.squad`,
+            message: `References undefined squad '${step.squad}'.`,
+          });
+        }
       }
     }
 
@@ -64,8 +83,18 @@ export class LangGraphProvider implements HarnessProvider {
     ir: Harnessfile,
     options: ProviderOptions,
   ): Promise<CompiledHarness> {
-    const compiled = buildGraph(ir, options);
-    return new LangGraphCompiledHarness(compiled, ir);
+    // Nodes emit events (squad dispatches, warnings) through this indirection;
+    // the harness instance routes them to the right run's event stream.
+    let harness: LangGraphCompiledHarness | undefined;
+    const emit = (
+      threadId: string | undefined,
+      event: Omit<HarnessEvent, "threadId" | "timestamp">,
+    ) => {
+      if (threadId) harness?.pushEvent(threadId, event);
+    };
+    const compiled = buildGraph(ir, options, emit);
+    harness = new LangGraphCompiledHarness(compiled, ir);
+    return harness;
   }
 }
 
@@ -74,11 +103,23 @@ class LangGraphCompiledHarness implements CompiledHarness {
     string,
     { status: RunInfo["status"]; startedAt: Date; suspendedAt?: string }
   >();
+  private eventBuffers = new Map<string, HarnessEvent[]>();
 
   constructor(
     private graph: ReturnType<typeof buildGraph>,
     private ir: Harnessfile,
   ) {}
+
+  pushEvent(
+    threadId: string,
+    event: Omit<HarnessEvent, "threadId" | "timestamp">,
+  ): void {
+    this.eventBuffers.get(threadId)?.push({
+      ...event,
+      threadId,
+      timestamp: new Date(),
+    });
+  }
 
   async createRun(input: Record<string, unknown>): Promise<RunHandle> {
     const threadId = randomUUID();
@@ -129,8 +170,8 @@ class LangGraphCompiledHarness implements CompiledHarness {
   }
 
   async shutdown(): Promise<void> {
-    // For v0.1, just clear the runs map
     this.runs.clear();
+    this.eventBuffers.clear();
   }
 
   private executeRun(
@@ -138,7 +179,10 @@ class LangGraphCompiledHarness implements CompiledHarness {
     input: unknown,
     config: { configurable: { thread_id: string } },
   ): RunHandle {
+    // Fresh event buffer per execution segment (create or resume); nodes push
+    // into it via pushEvent while the graph runs.
     const events: HarnessEvent[] = [];
+    this.eventBuffers.set(threadId, events);
     const self = this;
 
     const resultPromise = (async (): Promise<RunResult> => {

@@ -65,13 +65,15 @@ You triage Sentry issues. Deduplicate by issue id, ignore noise, file genuine bu
 | [`spec/v0.1-draft.md`](./spec/v0.1-draft.md) | Superseded; extended reference for the graph model and interfaces |
 | [`decisions.md`](./decisions.md) | Chronological design decision record |
 | [`reviews/`](./reviews/) | Reviews of the v0.1 draft + 2026-07 industry research |
-| [`examples/`](./examples/) | Examples (v0.1 format; v0.2 examples in progress) |
-| [`packages/cli`](./packages/cli) | CLI runtime with a LangGraph harness provider (being adapted to v0.2) |
-| [`ui`](./ui) | Visual editor (React) — frozen until the v0.2 spec stabilizes |
+| [`schema/`](./schema/) | JSON Schemas for `harness.yaml` and entity frontmatter |
+| [`examples/minimal`](./examples/minimal/) | The smallest useful harness (two files) |
+| [`examples/altavox`](./examples/altavox/) | **The flagship example** — a real production harness: 9-agent squad, risk×ambiguity routing, Sentry autopilot, 4 targets |
+| [`packages/cli`](./packages/cli) | The `harnessfile` CLI: `validate`, `sync` (claude-code · codex · github · multica), `up` (LangGraph runtime) |
+| [`ui`](./ui) | Visual editor (React) for the `.agents/` directory, built on the Fermata design system |
 
 ## Status
 
-v0.2 is a **draft**. The first implementation milestone is expressing a real production harness (a 9-agent development squad with risk×ambiguity routing) and syncing it to Multica, Claude Code, Cursor, and Codex.
+v0.2 is **implemented**: the spec draft, JSON Schemas, the CLI (directory parser, validation, sync with target ownership, headless runtime with scheduled triggers and squad orchestration), the visual editor, and a real production harness as the flagship example. Interfaces may still change before the spec freezes; the MCP 2026-07-28 final revision is being tracked before gate/HITL semantics harden.
 
 Feedback, issues, and PRs are welcome.
 

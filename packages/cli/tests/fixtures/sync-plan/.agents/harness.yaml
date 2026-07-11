@@ -1,0 +1,27 @@
+harnessfile: "0.2"
+name: sync-plan
+
+triggers:
+  nightly-sweep:
+    schedule: "0 3 * * *"
+    timezone: UTC
+    prompt: ./autopilots/nightly-sweep.md
+    next: triage
+
+steps:
+  triage:
+    agent: triager
+
+  dev:
+    squad: development
+
+targets:
+  multica:
+    provider: multica/v1
+    owns: [model, runtime, concurrency, env, mcp]
+  claude-code:
+    provider: claude-code/v1
+  codex:
+    provider: codex/v1
+  github:
+    provider: github-agent-hq/v1

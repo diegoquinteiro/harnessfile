@@ -1,0 +1,20 @@
+harnessfile: "0.2"
+name: targets-harness
+
+steps:
+  work:
+    agent: worker
+
+targets:
+  multica:
+    provider: multica/v1
+    owns: [model, runtime, concurrency, env, mcp]
+  claude-code:
+    provider: claude-code/v1
+  codex:
+    provider: codex/v1
+  github:
+    provider: github-agent-hq/v1
+  bad-owns:
+    provider: multica/v1
+    owns: [model, flux-capacitor]

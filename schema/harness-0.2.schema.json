@@ -1,0 +1,242 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harnessfile.dev/schema/harness-0.2.schema.json",
+  "title": "Harnessfile v0.2 — harness.yaml",
+  "description": "Schema for .agents/harness.yaml — the harness: triggers, gates, graph, routing, targets.",
+  "type": "object",
+  "required": ["harnessfile", "name"],
+  "additionalProperties": false,
+  "properties": {
+    "harnessfile": { "const": "0.2", "description": "Spec version." },
+    "name": { "type": "string", "minLength": 1 },
+    "triggers": {
+      "type": "object",
+      "description": "Entry nodes. Sugar for steps with type: trigger.",
+      "additionalProperties": { "$ref": "#/$defs/trigger" }
+    },
+    "steps": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/step" }
+    },
+    "targets": {
+      "type": "object",
+      "description": "Sync targets and ownership (D42).",
+      "additionalProperties": { "$ref": "#/$defs/target" }
+    },
+    "observability": { "$ref": "#/$defs/observability" },
+    "security": { "$ref": "#/$defs/security" },
+    "memory": { "$ref": "#/$defs/memory" },
+    "resilience": { "$ref": "#/$defs/resilience" },
+    "hooks": { "$ref": "#/$defs/hooks" }
+  },
+  "$defs": {
+    "provider": {
+      "oneOf": [
+        { "type": "string", "pattern": "^([a-z0-9-]+/)?[a-z0-9-]+/v[0-9]+$" },
+        {
+          "type": "object",
+          "required": ["type"],
+          "properties": { "type": { "type": "string" } },
+          "patternProperties": { "^x-": {} },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "next": {
+      "oneOf": [
+        { "type": "string" },
+        { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+      ]
+    },
+    "schemaShape": {
+      "type": "object",
+      "description": "A loose data-shape declaration: field name -> type name.",
+      "additionalProperties": true
+    },
+    "duration": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h|d)$" },
+    "trigger": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "trigger" },
+        "provider": { "$ref": "#/$defs/provider" },
+        "event": { "type": "string" },
+        "filter": { "type": "string" },
+        "schedule": { "type": "string", "description": "Cron expression — makes this a scheduled trigger." },
+        "timezone": { "type": "string" },
+        "prompt": { "type": "string", "description": "Inline prompt or path to a Markdown prompt file (the autopilot form, D41)." },
+        "output": { "$ref": "#/$defs/schemaShape" },
+        "next": { "$ref": "#/$defs/next" },
+        "hooks": { "$ref": "#/$defs/hooks" }
+      },
+      "anyOf": [{ "required": ["provider"] }, { "required": ["schedule"] }]
+    },
+    "eval": {
+      "type": "object",
+      "required": ["metric"],
+      "additionalProperties": false,
+      "properties": {
+        "metric": { "type": "string" },
+        "type": { "enum": ["code", "llm", "human"], "default": "code" },
+        "pass": { "type": ["number", "string", "boolean"], "default": true },
+        "aggregate": { "enum": ["mean", "min", "all"], "default": "all" },
+        "prompt": { "type": "string" },
+        "dataset": { "type": "string" },
+        "expected": { "type": "string" },
+        "provider": { "$ref": "#/$defs/provider" }
+      }
+    },
+    "retry": {
+      "oneOf": [
+        { "type": "integer", "minimum": 0 },
+        {
+          "type": "object",
+          "required": ["max"],
+          "additionalProperties": false,
+          "properties": {
+            "max": { "type": "integer", "minimum": 0 },
+            "backoff": { "enum": ["none", "linear", "exponential"], "default": "none" }
+          }
+        }
+      ]
+    },
+    "stepCommon": {
+      "type": "object",
+      "properties": {
+        "next": { "$ref": "#/$defs/next" },
+        "eval": { "type": "array", "items": { "$ref": "#/$defs/eval" } },
+        "max-iterations": { "type": "integer", "minimum": 1 },
+        "context": { "type": "string" },
+        "output": { "$ref": "#/$defs/schemaShape" },
+        "timeout": { "$ref": "#/$defs/duration" },
+        "retry": { "$ref": "#/$defs/retry" },
+        "on-error": { "enum": ["fail", "skip", "continue"], "default": "fail" },
+        "provider": { "$ref": "#/$defs/provider" },
+        "hooks": { "$ref": "#/$defs/hooks" }
+      }
+    },
+    "step": {
+      "allOf": [{ "$ref": "#/$defs/stepCommon" }],
+      "type": "object",
+      "unevaluatedProperties": false,
+      "properties": {
+        "type": { "enum": ["agent", "squad", "trigger", "output", "gate", "router"] },
+        "agent": { "type": "string", "description": "Agent slug — resolves to agents/<slug>.md." },
+        "squad": { "type": "string", "description": "Squad slug — resolves to squads/<slug>.md. Squads are agent-compatible (D40)." },
+        "routes": { "type": "object", "additionalProperties": { "type": "string" } },
+        "approve": { "const": "human" },
+        "channel": { "type": "string" },
+        "fallback": { "enum": ["reject", "approve", "escalate"], "default": "reject" },
+        "event": { "type": "string" },
+        "filter": { "type": "string" },
+        "schedule": { "type": "string" },
+        "timezone": { "type": "string" },
+        "prompt": { "type": "string" },
+        "input": { "$ref": "#/$defs/schemaShape" }
+      },
+      "not": { "required": ["agent", "squad"] }
+    },
+    "target": {
+      "type": "object",
+      "required": ["provider"],
+      "additionalProperties": false,
+      "properties": {
+        "provider": { "$ref": "#/$defs/provider" },
+        "owns": {
+          "type": "array",
+          "description": "Fields owned by this target: seeded at bootstrap, never overwritten by sync (D42).",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        }
+      },
+      "patternProperties": { "^x-": {} }
+    },
+    "observability": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tracing": { "type": "string" },
+        "metrics": { "type": "string" },
+        "sampling": { "type": "number", "minimum": 0, "maximum": 1, "default": 1 },
+        "level": { "enum": ["calls", "steps", "harness"], "default": "steps" }
+      }
+    },
+    "security": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "guardrails": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "input": { "type": "array", "items": { "type": "string" } },
+            "output": { "type": "array", "items": { "type": "string" } },
+            "provider": { "$ref": "#/$defs/provider" }
+          }
+        },
+        "budget": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "max-tokens": { "type": "integer", "minimum": 1 },
+            "max-cost": { "type": "string", "pattern": "^\\$[0-9]+(\\.[0-9]{1,2})?$" }
+          }
+        },
+        "audit": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "destination": { "type": "string", "default": "stdout" },
+            "level": { "enum": ["actions", "reasoning", "full"], "default": "actions" }
+          }
+        }
+      }
+    },
+    "memory": {
+      "type": "object",
+      "required": ["backend"],
+      "additionalProperties": false,
+      "properties": {
+        "backend": { "type": "string" },
+        "scope": { "enum": ["thread", "shared", "global"], "default": "thread" },
+        "type": { "enum": ["checkpoint", "conversation", "semantic"], "default": "checkpoint" },
+        "ttl": { "$ref": "#/$defs/duration" }
+      }
+    },
+    "resilience": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "timeout": { "$ref": "#/$defs/duration" },
+        "checkpoint": { "type": "boolean", "default": false }
+      }
+    },
+    "hook": {
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "required": ["run"],
+          "additionalProperties": false,
+          "properties": {
+            "run": { "type": "string" },
+            "can": { "type": "array", "items": { "enum": ["abort", "modify"] }, "uniqueItems": true }
+          }
+        }
+      ]
+    },
+    "hooks": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "on-start": { "$ref": "#/$defs/hook" },
+        "before-step": { "$ref": "#/$defs/hook" },
+        "after-step": { "$ref": "#/$defs/hook" },
+        "on-error": { "$ref": "#/$defs/hook" },
+        "on-gate-pending": { "$ref": "#/$defs/hook" },
+        "on-gate-resolved": { "$ref": "#/$defs/hook" },
+        "on-complete": { "$ref": "#/$defs/hook" }
+      }
+    }
+  }
+}

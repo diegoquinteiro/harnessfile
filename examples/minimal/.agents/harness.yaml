@@ -1,0 +1,13 @@
+# The smallest useful harness: one agent, one scheduled trigger.
+harnessfile: "0.2"
+name: sentry-triage
+
+triggers:
+  hourly-sweep:
+    schedule: "0 * * * *"
+    prompt: Run a Sentry triage sweep. File genuine bugs only.
+    next: triage
+
+steps:
+  triage:
+    agent: triager

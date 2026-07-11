@@ -1,7 +1,7 @@
 {
   "name": "harnessfile",
-  "version": "0.1.0",
-  "description": "CLI runtime for Harnessfile — vendor-neutral AI agent harness specification",
+  "version": "0.2.0",
+  "description": "CLI for Harnessfile — vendor-neutral AI agent harness specification (.agents/ directory)",
   "type": "module",
   "bin": {
     "harnessfile": "./bin/harnessfile.js"

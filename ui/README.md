@@ -1,73 +1,36 @@
-# React + TypeScript + Vite
+# Harnessfile visual editor
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A local-first visual editor/viewer for a Harnessfile v0.2 `.agents/` directory: load a
+directory, see the harness graph and every entity (agents, squads, skills, targets), edit
+them, and write the result back.
 
-Currently, two official plugins are available:
+- **Open**: File System Access API (`showDirectoryPicker`) where available, with an
+  `<input webkitdirectory>` fallback. Pick either the `.agents/` directory itself or a
+  repository root containing one.
+- **Save**: writes only the changed files back in place (File System Access), or exports
+  the whole directory as a zip.
+- **Round-trip fidelity**: files you did not edit pass through byte-for-byte; unknown
+  frontmatter keys (e.g. `multica.display_name`) are preserved.
+- **Demo**: the AltaVox harness from `examples/altavox/.agents/` is bundled as the built-in
+  demo (copied into `src/demo/altavox/` — keep it in sync with the canonical example).
+- **Design**: Fermata design system (Linho + Carmim, Cormorant Garamond / Inter / DM Mono),
+  plain CSS custom properties — no CSS framework.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Develop
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```
+npm install
+npm run dev      # local dev server
+npm run build    # tsc + vite build
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Layout
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```
+src/
+├── lib/          # parse / serialize / validate / dagre layout / file-system access
+├── components/   # header, library, graph, inspector, entity editor, targets, status bar
+├── styles/       # fermata.css (tokens, replicated from the Fermata repo) + app.css
+├── demo/         # bundled AltaVox example (.agents mirror)
+└── store.ts      # single zustand store; the file map is the source of truth
 ```

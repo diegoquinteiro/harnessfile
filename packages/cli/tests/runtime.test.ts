@@ -1,40 +1,221 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { resolve } from "node:path";
-import { parseHarnessfile } from "../src/parser/parse.js";
-import { normalize } from "../src/ir/normalize.js";
-import { LangGraphProvider } from "../src/providers/langgraph/index.js";
+import { loadHarnessDirectory } from "../src/parser/directory.js";
 import { RunManager } from "../src/runtime/run-manager.js";
 import { TriggerListener } from "../src/runtime/trigger-listener.js";
 import { GateResolver } from "../src/runtime/gate-resolver.js";
+import { cronMatches, minuteKey, parseCronExpression } from "../src/runtime/cron.js";
 import type { Harnessfile } from "../src/ir/types.js";
-import type { CompiledHarness } from "../src/providers/interface.js";
+import type { CompiledHarness, RunHandle } from "../src/providers/interface.js";
 
 const FIXTURES = resolve(import.meta.dirname, "fixtures");
 
 function loadIR(fixture: string): Harnessfile {
-  const raw = parseHarnessfile(resolve(FIXTURES, fixture));
-  return normalize(raw as Record<string, unknown>);
+  return loadHarnessDirectory(resolve(FIXTURES, fixture)).ir;
 }
+
+function makeRecordingHarness(runs: Array<{ threadId: string; input: any }>): CompiledHarness {
+  return {
+    async createRun(input) {
+      const threadId = `run-${runs.length + 1}`;
+      runs.push({ threadId, input });
+      const handle: RunHandle = {
+        threadId,
+        events: {
+          [Symbol.asyncIterator]() {
+            return {
+              async next() {
+                return { value: undefined as any, done: true };
+              },
+            };
+          },
+        },
+        result: Promise.resolve({
+          status: "completed" as const,
+          threadId,
+          output: {},
+        }),
+      };
+      return handle;
+    },
+    async resumeRun() {
+      throw new Error("not needed");
+    },
+    async listRuns() {
+      return [];
+    },
+    async shutdown() {},
+  };
+}
+
+// ---- Cron matcher ----
+
+describe("cron matcher", () => {
+  // 2026-07-08 is a Wednesday
+  const wed1030 = new Date(2026, 6, 8, 10, 30, 0);
+
+  it("matches wildcard expression", () => {
+    expect(cronMatches("* * * * *", wed1030)).toBe(true);
+  });
+
+  it("matches exact minute and hour", () => {
+    expect(cronMatches("30 10 * * *", wed1030)).toBe(true);
+    expect(cronMatches("31 10 * * *", wed1030)).toBe(false);
+    expect(cronMatches("30 11 * * *", wed1030)).toBe(false);
+  });
+
+  it("matches hourly (0 * * * *) only at minute zero", () => {
+    expect(cronMatches("0 * * * *", new Date(2026, 6, 8, 10, 0, 0))).toBe(true);
+    expect(cronMatches("0 * * * *", wed1030)).toBe(false);
+  });
+
+  it("matches step values", () => {
+    expect(cronMatches("*/15 * * * *", new Date(2026, 6, 8, 10, 45, 0))).toBe(true);
+    expect(cronMatches("*/15 * * * *", new Date(2026, 6, 8, 10, 50, 0))).toBe(false);
+  });
+
+  it("matches ranges and lists", () => {
+    expect(cronMatches("30 9-11 * * *", wed1030)).toBe(true);
+    expect(cronMatches("30 12-14 * * *", wed1030)).toBe(false);
+    expect(cronMatches("15,30,45 * * * *", wed1030)).toBe(true);
+    expect(cronMatches("15,45 * * * *", wed1030)).toBe(false);
+  });
+
+  it("matches ranges with steps", () => {
+    expect(cronMatches("0-58/2 * * * *", wed1030)).toBe(true);
+    expect(cronMatches("1-59/2 * * * *", wed1030)).toBe(false);
+  });
+
+  it("matches day of month and month", () => {
+    expect(cronMatches("30 10 8 7 *", wed1030)).toBe(true);
+    expect(cronMatches("30 10 9 7 *", wed1030)).toBe(false);
+    expect(cronMatches("30 10 * 8 *", wed1030)).toBe(false);
+  });
+
+  it("matches day of week, with 7 as Sunday", () => {
+    expect(cronMatches("30 10 * * 3", wed1030)).toBe(true); // Wednesday
+    expect(cronMatches("30 10 * * 0", wed1030)).toBe(false);
+    const sunday = new Date(2026, 6, 12, 10, 30, 0);
+    expect(cronMatches("30 10 * * 0", sunday)).toBe(true);
+    expect(cronMatches("30 10 * * 7", sunday)).toBe(true);
+  });
+
+  it("evaluates in the trigger timezone", () => {
+    // 12:00 UTC == 09:00 America/Sao_Paulo (UTC-3)
+    const noonUtc = new Date(Date.UTC(2026, 6, 8, 12, 0, 0));
+    expect(cronMatches("0 9 * * *", noonUtc, "America/Sao_Paulo")).toBe(true);
+    expect(cronMatches("0 12 * * *", noonUtc, "America/Sao_Paulo")).toBe(false);
+    expect(cronMatches("0 12 * * *", noonUtc, "UTC")).toBe(true);
+  });
+
+  it("rejects malformed expressions", () => {
+    expect(() => parseCronExpression("0 * * *")).toThrow("expected 5 fields");
+    expect(() => cronMatches("99 * * * *", wed1030)).toThrow("out of range");
+    expect(() => cronMatches("x * * * *", wed1030)).toThrow("Invalid cron");
+  });
+
+  it("computes stable minute keys per timezone", () => {
+    const a = new Date(Date.UTC(2026, 6, 8, 12, 0, 10));
+    const b = new Date(Date.UTC(2026, 6, 8, 12, 0, 50));
+    const c = new Date(Date.UTC(2026, 6, 8, 12, 1, 5));
+    expect(minuteKey(a, "UTC")).toBe(minuteKey(b, "UTC"));
+    expect(minuteKey(a, "UTC")).not.toBe(minuteKey(c, "UTC"));
+  });
+});
 
 // ---- TriggerListener ----
 
 describe("TriggerListener", () => {
-  it("detects triggers in harnessfile", () => {
-    const ir = loadIR("pipeline.yaml");
+  it("detects triggers in the harness", () => {
+    const ir = loadIR("pipeline");
     const listener = new TriggerListener(ir, null as any);
     expect(listener.hasTriggers()).toBe(true);
   });
 
-  it("detects no triggers in minimal harnessfile", () => {
-    const ir = loadIR("minimal.yaml");
+  it("detects scheduled triggers", () => {
+    const ir = loadIR("scheduled-trigger");
+    const listener = new TriggerListener(ir, null as any);
+    expect(listener.hasTriggers()).toBe(true);
+  });
+
+  it("detects no triggers in minimal harness", () => {
+    const ir = loadIR("minimal");
     const listener = new TriggerListener(ir, null as any);
     expect(listener.hasTriggers()).toBe(false);
   });
 
-  it("detects no triggers in fanout harnessfile", () => {
-    const ir = loadIR("fanout.yaml");
+  it("detects no triggers in fanout harness", () => {
+    const ir = loadIR("fanout");
     const listener = new TriggerListener(ir, null as any);
     expect(listener.hasTriggers()).toBe(false);
+  });
+});
+
+// ---- Scheduled trigger firing ----
+
+describe("TriggerListener — scheduled triggers", () => {
+  it("fires a scheduled trigger with the resolved prompt as run input", async () => {
+    const ir = loadIR("scheduled-trigger");
+    const runs: Array<{ threadId: string; input: any }> = [];
+    const manager = new RunManager(makeRecordingHarness(runs));
+    const listener = new TriggerListener(ir, manager);
+
+    // 06:00 America/Sao_Paulo == 09:00 UTC — matches "0 * * * *"
+    const topOfHour = new Date(Date.UTC(2026, 6, 8, 9, 0, 0));
+    const fired = await listener.checkScheduledTriggers(topOfHour);
+
+    expect(fired).toContain("hourly-sweep");
+    const run = runs.find((r) => r.input.trigger === "hourly-sweep");
+    expect(run).toBeDefined();
+    expect(run!.input.scheduled).toBe(true);
+    expect(run!.input.prompt).toContain("Run a triage sweep now.");
+  });
+
+  it("fires the inline-prompt trigger with the inline text", async () => {
+    const ir = loadIR("scheduled-trigger");
+    const runs: Array<{ threadId: string; input: any }> = [];
+    const manager = new RunManager(makeRecordingHarness(runs));
+    const listener = new TriggerListener(ir, manager);
+
+    const fiveMinuteMark = new Date(Date.UTC(2026, 6, 8, 9, 5, 0));
+    const fired = await listener.checkScheduledTriggers(fiveMinuteMark);
+
+    expect(fired).toEqual(["inline-sweep"]);
+    expect(runs[0].input.prompt).toBe("Run a quick inline sweep.");
+  });
+
+  it("fires only once per matching minute", async () => {
+    const ir = loadIR("scheduled-trigger");
+    const runs: Array<{ threadId: string; input: any }> = [];
+    const manager = new RunManager(makeRecordingHarness(runs));
+    const listener = new TriggerListener(ir, manager);
+
+    const t0 = new Date(Date.UTC(2026, 6, 8, 9, 0, 0));
+    const t1 = new Date(Date.UTC(2026, 6, 8, 9, 0, 30));
+    await listener.checkScheduledTriggers(t0);
+    await listener.checkScheduledTriggers(t1);
+
+    const hourlyRuns = runs.filter((r) => r.input.trigger === "hourly-sweep");
+    expect(hourlyRuns).toHaveLength(1);
+
+    // Next hour fires again
+    const t2 = new Date(Date.UTC(2026, 6, 8, 10, 0, 0));
+    await listener.checkScheduledTriggers(t2);
+    expect(
+      runs.filter((r) => r.input.trigger === "hourly-sweep"),
+    ).toHaveLength(2);
+  });
+
+  it("does not fire when the cron does not match", async () => {
+    const ir = loadIR("scheduled-trigger");
+    const runs: Array<{ threadId: string; input: any }> = [];
+    const manager = new RunManager(makeRecordingHarness(runs));
+    const listener = new TriggerListener(ir, manager);
+
+    const offSchedule = new Date(Date.UTC(2026, 6, 8, 9, 7, 0));
+    const fired = await listener.checkScheduledTriggers(offSchedule);
+    expect(fired).toEqual([]);
+    expect(runs).toHaveLength(0);
   });
 });
 
@@ -115,7 +296,7 @@ describe("TriggerListener HTTP", () => {
   const PORT = 18082;
 
   beforeAll(async () => {
-    const ir = loadIR("pipeline.yaml");
+    const ir = loadIR("pipeline");
 
     // Mock compiled harness that tracks runs
     const runs: Array<{ threadId: string; input: any }> = [];

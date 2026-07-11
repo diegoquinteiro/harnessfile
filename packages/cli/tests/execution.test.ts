@@ -1,16 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { resolve } from "node:path";
 import { AIMessage } from "@langchain/core/messages";
-import { parseHarnessfile } from "../src/parser/parse.js";
-import { normalize } from "../src/ir/normalize.js";
+import { loadHarnessDirectory } from "../src/parser/directory.js";
 import { LangGraphProvider } from "../src/providers/langgraph/index.js";
 import type { Harnessfile } from "../src/ir/types.js";
 
 const FIXTURES = resolve(import.meta.dirname, "fixtures");
 
 function loadIR(fixture: string): Harnessfile {
-  const raw = parseHarnessfile(resolve(FIXTURES, fixture));
-  return normalize(raw as Record<string, unknown>);
+  return loadHarnessDirectory(resolve(FIXTURES, fixture)).ir;
 }
 
 // Mock model.invoke to return fake LLM responses
@@ -45,7 +43,7 @@ describe("execution — pipeline", () => {
   const provider = new LangGraphProvider();
 
   it("runs a two-step pipeline to completion", async () => {
-    const ir = loadIR("pipeline.yaml");
+    const ir = loadIR("pipeline");
     const compiled = await provider.compile(ir, { checkpointer: "memory" });
 
     const handle = await compiled.createRun({ query: "test" });
@@ -57,7 +55,7 @@ describe("execution — pipeline", () => {
   });
 
   it("emits run-start and run-end events", async () => {
-    const ir = loadIR("pipeline.yaml");
+    const ir = loadIR("pipeline");
     const compiled = await provider.compile(ir, { checkpointer: "memory" });
 
     const handle = await compiled.createRun({ query: "test" });
@@ -72,7 +70,7 @@ describe("execution — pipeline", () => {
   });
 
   it("tracks the run in listRuns", async () => {
-    const ir = loadIR("pipeline.yaml");
+    const ir = loadIR("pipeline");
     const compiled = await provider.compile(ir, { checkpointer: "memory" });
 
     const handle = await compiled.createRun({ query: "test" });
@@ -85,7 +83,7 @@ describe("execution — pipeline", () => {
   });
 
   it("handles multiple concurrent runs", async () => {
-    const ir = loadIR("pipeline.yaml");
+    const ir = loadIR("pipeline");
     const compiled = await provider.compile(ir, { checkpointer: "memory" });
 
     const handles = await Promise.all([
@@ -113,7 +111,7 @@ describe("execution — router", () => {
   const provider = new LangGraphProvider();
 
   it("routes to the correct step based on classification", async () => {
-    const ir = loadIR("router.yaml");
+    const ir = loadIR("router");
     const compiled = await provider.compile(ir, { checkpointer: "memory" });
 
     const handle = await compiled.createRun({ ticket: "Build feature X" });
@@ -131,7 +129,7 @@ describe("execution — fan-out/fan-in", () => {
   const provider = new LangGraphProvider();
 
   it("executes parallel branches and merges", async () => {
-    const ir = loadIR("fanout.yaml");
+    const ir = loadIR("fanout");
     const compiled = await provider.compile(ir, { checkpointer: "memory" });
 
     const handle = await compiled.createRun({ task: "implement feature" });
@@ -147,7 +145,7 @@ describe("execution — gate", () => {
   const provider = new LangGraphProvider();
 
   it("suspends at gate step", async () => {
-    const ir = loadIR("gate.yaml");
+    const ir = loadIR("gate");
     const compiled = await provider.compile(ir, { checkpointer: "memory" });
 
     const handle = await compiled.createRun({ query: "test" });
@@ -158,7 +156,7 @@ describe("execution — gate", () => {
   });
 
   it("tracks suspended run in listRuns", async () => {
-    const ir = loadIR("gate.yaml");
+    const ir = loadIR("gate");
     const compiled = await provider.compile(ir, { checkpointer: "memory" });
 
     const handle = await compiled.createRun({ query: "test" });
@@ -172,7 +170,7 @@ describe("execution — gate", () => {
   });
 
   it("resumes after gate approval and completes", async () => {
-    const ir = loadIR("gate.yaml");
+    const ir = loadIR("gate");
     const compiled = await provider.compile(ir, { checkpointer: "memory" });
 
     // Start run — will suspend at gate
@@ -191,7 +189,7 @@ describe("execution — gate", () => {
   });
 
   it("emits gate-pending event when suspended", async () => {
-    const ir = loadIR("gate.yaml");
+    const ir = loadIR("gate");
     const compiled = await provider.compile(ir, { checkpointer: "memory" });
 
     const handle = await compiled.createRun({ query: "test" });
@@ -206,7 +204,7 @@ describe("execution — gate", () => {
   });
 
   it("rejects resume for non-existent thread", async () => {
-    const ir = loadIR("gate.yaml");
+    const ir = loadIR("gate");
     const compiled = await provider.compile(ir, { checkpointer: "memory" });
 
     await expect(
@@ -215,7 +213,7 @@ describe("execution — gate", () => {
   });
 
   it("rejects resume for non-suspended thread", async () => {
-    const ir = loadIR("pipeline.yaml");
+    const ir = loadIR("pipeline");
     const compiled = await provider.compile(ir, { checkpointer: "memory" });
 
     // Run completes (no gate)
@@ -228,7 +226,7 @@ describe("execution — gate", () => {
   });
 
   it("handles concurrent runs with one suspended", async () => {
-    const ir = loadIR("gate.yaml");
+    const ir = loadIR("gate");
     const compiled = await provider.compile(ir, { checkpointer: "memory" });
 
     // Start two runs — both will suspend at gate
@@ -256,7 +254,7 @@ describe("execution — eval loop", () => {
   const provider = new LangGraphProvider();
 
   it("compiles and runs eval loop harness", async () => {
-    const ir = loadIR("eval-loop.yaml");
+    const ir = loadIR("eval-loop");
     const compiled = await provider.compile(ir, { checkpointer: "memory" });
 
     const handle = await compiled.createRun({ spec: "write a spec" });
@@ -274,7 +272,7 @@ describe("execution — full pipeline", () => {
   const provider = new LangGraphProvider();
 
   it("compiles and runs the full fixture (gate suspends)", async () => {
-    const ir = loadIR("full.yaml");
+    const ir = loadIR("full");
     const compiled = await provider.compile(ir, { checkpointer: "memory" });
 
     const handle = await compiled.createRun({
@@ -289,7 +287,7 @@ describe("execution — full pipeline", () => {
   });
 
   it("full pipeline resumes after gate approval", async () => {
-    const ir = loadIR("full.yaml");
+    const ir = loadIR("full");
     const compiled = await provider.compile(ir, { checkpointer: "memory" });
 
     // Start — will suspend at review gate
@@ -314,7 +312,7 @@ describe("execution — shutdown", () => {
   const provider = new LangGraphProvider();
 
   it("clears runs on shutdown", async () => {
-    const ir = loadIR("pipeline.yaml");
+    const ir = loadIR("pipeline");
     const compiled = await provider.compile(ir, { checkpointer: "memory" });
 
     await compiled.createRun({ query: "test" });

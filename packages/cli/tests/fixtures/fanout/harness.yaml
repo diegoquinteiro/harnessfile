@@ -1,0 +1,18 @@
+harnessfile: "0.2"
+name: fanout
+
+steps:
+  plan:
+    agent: planner
+    next: [frontend, backend]
+
+  frontend:
+    agent: frontend-dev
+    next: merge
+
+  backend:
+    agent: backend-dev
+    next: merge
+
+  merge:
+    agent: merger

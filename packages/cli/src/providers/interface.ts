@@ -88,6 +88,7 @@ export type HarnessEventType =
   | "gate-resolved"
   | "hook"
   | "eval"
+  | "warning"
   | "run-start"
   | "run-end";
 

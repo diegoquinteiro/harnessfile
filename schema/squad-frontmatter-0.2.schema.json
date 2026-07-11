@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harnessfile.dev/schema/squad-frontmatter-0.2.schema.json",
+  "title": "Harnessfile v0.2 — squads/<slug>.md frontmatter",
+  "description": "YAML frontmatter of a squad. The Markdown body is the leader's orchestration instructions. Squads are agent-compatible (D40). Members are agents only — humans belong to targets.",
+  "type": "object",
+  "required": ["name", "description", "leader", "members"],
+  "properties": {
+    "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+    "description": { "type": "string", "minLength": 1 },
+    "leader": { "type": "string", "description": "Agent slug; must also appear in members." },
+    "members": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["agent"],
+        "additionalProperties": false,
+        "properties": {
+          "agent": { "type": "string" },
+          "role": { "type": "string" }
+        }
+      }
+    }
+  },
+  "additionalProperties": { "type": "object", "description": "Target-namespaced passthrough (e.g. multica: {...})." }
+}

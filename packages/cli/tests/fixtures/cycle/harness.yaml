@@ -1,0 +1,11 @@
+harnessfile: "0.2"
+name: cycle
+
+steps:
+  step-a:
+    agent: agent-a
+    next: step-b
+
+  step-b:
+    agent: agent-b
+    next: step-a

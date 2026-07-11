@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://harnessfile.dev/schema/agent-frontmatter-0.2.schema.json",
+  "title": "Harnessfile v0.2 — agents/<slug>.md frontmatter",
+  "description": "YAML frontmatter of an agent role card. The Markdown body is the system prompt. Keys under a target namespace (e.g. multica.display_name) pass through to that target on sync.",
+  "type": "object",
+  "required": ["name", "description"],
+  "properties": {
+    "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+    "description": { "type": "string", "minLength": 1 },
+    "model": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+/.+$",
+      "description": "Portable default (provider/model). Targets may own this field (D42)."
+    },
+    "tools": { "type": "array", "items": { "type": ["string", "object"] } },
+    "skills": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Skill names resolved in skills/<name>/SKILL.md."
+    }
+  },
+  "additionalProperties": { "type": "object", "description": "Target-namespaced passthrough (e.g. multica: {...})." }
+}

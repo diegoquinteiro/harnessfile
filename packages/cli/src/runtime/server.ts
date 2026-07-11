@@ -1,7 +1,4 @@
-import { resolve } from "node:path";
-import type { Harnessfile } from "../ir/types.js";
-import { resolveHarnessfilePath, parseHarnessfile } from "../parser/parse.js";
-import { normalize } from "../ir/normalize.js";
+import { loadHarnessDirectory } from "../parser/directory.js";
 import { validateHarnessfile } from "../validator/validate.js";
 import { getProvider } from "../providers/registry.js";
 import type { ProviderOptions } from "../providers/interface.js";
@@ -26,12 +23,10 @@ export class HarnessServer {
   private shutdownRequested = false;
 
   async start(options: ServerOptions = {}): Promise<void> {
-    // 1. Parse
-    const filePath = resolveHarnessfilePath(options.file);
-    logInfo(`Loaded ${resolve(filePath)}`);
-
-    const raw = parseHarnessfile(filePath);
-    const ir = normalize(raw as Record<string, unknown>);
+    // 1. Parse the .agents/ directory
+    const harness = loadHarnessDirectory(options.file);
+    logInfo(`Loaded ${harness.harnessPath}`);
+    const ir = harness.ir;
 
     // 2. Validate
     const validation = validateHarnessfile(ir);

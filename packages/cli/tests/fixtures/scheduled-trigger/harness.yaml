@@ -1,0 +1,18 @@
+harnessfile: "0.2"
+name: scheduled
+
+triggers:
+  hourly-sweep:
+    schedule: "0 * * * *"
+    timezone: America/Sao_Paulo
+    prompt: ./autopilots/sweep.md
+    next: triage
+
+  inline-sweep:
+    schedule: "*/5 * * * *"
+    prompt: Run a quick inline sweep.
+    next: triage
+
+steps:
+  triage:
+    agent: triager

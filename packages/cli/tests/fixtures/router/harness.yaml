@@ -1,0 +1,22 @@
+harnessfile: "0.2"
+name: router
+
+steps:
+  start:
+    type: trigger
+    provider: webhook/v1
+    event: webhook
+    next: classify
+
+  classify:
+    type: router
+    agent: classifier
+    routes:
+      feature: build
+      bug: fix
+
+  build:
+    agent: feature-dev
+
+  fix:
+    agent: bug-fixer

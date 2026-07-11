@@ -1,0 +1,17 @@
+harnessfile: "0.2"
+name: squad-harness
+
+triggers:
+  issue-assigned:
+    provider: webhook/v1
+    event: issue-assigned
+    next: dev-squad
+
+steps:
+  dev-squad:
+    squad: development
+    next: done
+
+  done:
+    type: output
+    input: { summary: string }

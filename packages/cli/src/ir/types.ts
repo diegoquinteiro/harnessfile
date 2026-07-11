@@ -1,4 +1,4 @@
-// Harnessfile IR — typed intermediate representation of a parsed harnessfile.
+// Harnessfile IR — typed intermediate representation of a parsed .agents/ harness (spec v0.2).
 // YAML kebab-case is normalized to camelCase by the normalizer.
 
 // ---- Top-level ----
@@ -7,7 +7,11 @@ export interface Harnessfile {
   version: string;
   name?: string;
   agents: Record<string, AgentDef>;
+  squads?: Record<string, SquadDef>;
+  /** Names of skills present in skills/<name>/SKILL.md. */
+  skills?: string[];
   steps?: Record<string, StepDef>;
+  targets?: Record<string, TargetDef>;
   hooks?: HooksDef;
   observability?: ObservabilityDef;
   memory?: MemoryDef;
@@ -18,14 +22,58 @@ export interface Harnessfile {
 // ---- Agents ----
 
 export interface AgentDef {
-  model: string;
+  /** Slug (from frontmatter `name` or the file name). */
+  name?: string;
+  description?: string;
+  /** Portable default model — optional in v0.2; targets may own this field (D42). */
+  model?: string;
+  /** System prompt — the Markdown body of the role card. */
   instructions: string;
   tools?: ToolRef[];
+  /** Skill names resolved in skills/<name>/SKILL.md. */
   skills?: string[];
+  /** Unknown namespaced frontmatter keys (e.g. `multica: {...}`) passed through to targets. */
+  passthrough?: Record<string, unknown>;
 }
 
-export interface ToolRef {
-  mcp: string;
+export type ToolRef = string | { mcp: string };
+
+// ---- Squads ----
+
+export interface SquadMember {
+  agent: string;
+  role?: string;
+}
+
+export interface SquadDef {
+  name?: string;
+  description?: string;
+  /** Leader agent slug — must also appear in members. */
+  leader: string;
+  members: SquadMember[];
+  /** Leader orchestration instructions — the Markdown body of the squad file. */
+  instructions: string;
+  /** Unknown namespaced frontmatter keys (e.g. `multica: {...}`) passed through to targets. */
+  passthrough?: Record<string, unknown>;
+}
+
+// ---- Targets ----
+
+export const KNOWN_OWNED_FIELDS = [
+  "model",
+  "runtime",
+  "concurrency",
+  "env",
+  "mcp",
+  "tools",
+] as const;
+
+export interface TargetDef {
+  provider?: string | ProviderRef;
+  /** Fields owned by this target: seeded at bootstrap, never overwritten by sync (D42). */
+  owns?: string[];
+  /** x- extension keys. */
+  extra?: Record<string, unknown>;
 }
 
 // ---- Steps ----
@@ -35,12 +83,15 @@ export type StepType =
   | "output"
   | "gate"
   | "router"
-  | "orchestrator"
+  | "squad"
+  | "orchestrator" // superseded by squads in v0.2 — parsed with a validation warning
   | "agent";
 
 export interface StepDef {
   type: StepType;
   agent?: string;
+  /** Squad slug — resolves to squads/<slug>.md. Squads are agent-compatible (D40). */
+  squad?: string;
   next?: string | string[];
 
   // Eval loop
@@ -59,6 +110,13 @@ export interface StepDef {
   // Trigger fields
   event?: string;
   filter?: string;
+  /** Cron expression — makes this a scheduled trigger (D41). */
+  schedule?: string;
+  timezone?: string;
+  /** Resolved prompt text (inline string, or the contents of the referenced file). */
+  prompt?: string;
+  /** Original prompt path when `prompt:` referenced a Markdown file. */
+  promptPath?: string;
 
   // Gate fields
   approve?: "human";
@@ -68,7 +126,7 @@ export interface StepDef {
   // Router fields
   routes?: Record<string, string>;
 
-  // Orchestrator fields
+  // Orchestrator fields (v0.1 legacy)
   pool?: string[];
   maxAgents?: number;
 

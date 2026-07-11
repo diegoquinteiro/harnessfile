@@ -1,0 +1,2 @@
+harnessfile: "0.2"
+name: ${HARNESS_NAME:-variables}

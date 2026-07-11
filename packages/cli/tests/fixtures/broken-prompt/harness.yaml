@@ -1,0 +1,12 @@
+harnessfile: "0.2"
+name: broken-prompt
+
+triggers:
+  sweep:
+    schedule: "0 * * * *"
+    prompt: ./autopilots/missing.md
+    next: triage
+
+steps:
+  triage:
+    agent: triager

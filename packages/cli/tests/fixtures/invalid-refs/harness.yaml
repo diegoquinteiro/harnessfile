@@ -1,0 +1,16 @@
+harnessfile: "0.2"
+name: invalid-refs
+
+steps:
+  start:
+    type: trigger
+    provider: webhook/v1
+    event: webhook
+    next: research
+
+  research:
+    agent: nonexistent-agent
+    next: nonexistent-step
+
+  squad-step:
+    squad: nonexistent-squad

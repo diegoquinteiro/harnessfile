@@ -2,20 +2,24 @@ import { StateGraph, START, END } from "@langchain/langgraph";
 import { MemorySaver } from "@langchain/langgraph";
 import type { Harnessfile, StepDef } from "../../ir/types.js";
 import { buildStateAnnotation } from "./state-builder.js";
-import { buildNodeFunctions } from "./node-builder.js";
+import { buildNodeFunctions, type EventEmitter } from "./node-builder.js";
 import type { ProviderOptions } from "../interface.js";
 
 // Builds a compiled LangGraph StateGraph from the harnessfile IR.
 // The compiled graph can be invoked multiple times with different thread IDs.
 
-export function buildGraph(ir: Harnessfile, options: ProviderOptions) {
+export function buildGraph(
+  ir: Harnessfile,
+  options: ProviderOptions,
+  emit: EventEmitter = () => {},
+) {
   const StateAnnotation = buildStateAnnotation(ir);
   // Use `any` for the graph type because node names are dynamic strings
   // determined at runtime from the harnessfile YAML
   const graph: any = new StateGraph(StateAnnotation);
 
   // Build and add all node functions
-  const nodeFns = buildNodeFunctions(ir);
+  const nodeFns = buildNodeFunctions(ir, emit);
   for (const [name, fn] of nodeFns) {
     graph.addNode(name, fn);
   }

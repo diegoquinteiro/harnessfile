@@ -1,0 +1,47 @@
+# The AltaVox development harness — a real production harness expressed in Harnessfile v0.2.
+# Nine role agents, a PM-led squad with risk×ambiguity routing, an hourly Sentry autopilot,
+# and targets that own the operational config.
+harnessfile: "0.2"
+name: altavox-development
+
+observability:
+  tracing: otel/v1
+
+security:
+  budget:
+    max-cost: "$50.00"
+
+triggers:
+  issue-assigned:
+    provider: multica/v1 # swap for jira/v1, linear/v1, or github/v1 — same shape
+    event: issue-assigned
+    output: { issue_id: string, title: string, description: string }
+    next: development
+
+  sentry-sweep:
+    schedule: "0 * * * *"
+    timezone: America/Sao_Paulo
+    prompt: ./autopilots/sentry-triage.md
+    next: sentry-triage
+
+steps:
+  # The PM leads; the full risk×ambiguity routing lives in the squad body —
+  # the graph does not model the squad's internals (D40).
+  development:
+    squad: development
+
+  sentry-triage:
+    agent: sentry-triage
+
+targets:
+  multica:
+    provider: multica/v1
+    # bootstrap-then-hands-off: seeded from the portable defaults on first push,
+    # never overwritten afterwards (D42).
+    owns: [model, runtime, concurrency, env, mcp]
+  claude-code:
+    provider: claude-code/v1 # materializes .claude/{agents,skills} symlinks
+  codex:
+    provider: codex/v1 # generates .codex/agents/*.toml
+  github:
+    provider: github-agent-hq/v1 # generates .github/agents/*.md

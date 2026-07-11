@@ -1,0 +1,24 @@
+harnessfile: "0.2"
+name: gate
+
+steps:
+  start:
+    type: trigger
+    provider: webhook/v1
+    event: webhook
+    next: research
+
+  research:
+    agent: researcher
+    next: review
+
+  review:
+    type: gate
+    approve: human
+    channel: "#approvals"
+    timeout: 1h
+    fallback: reject
+    next: write
+
+  write:
+    agent: writer

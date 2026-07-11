@@ -1,16 +1,18 @@
 import { describe, it, expect } from "vitest";
-import { resolve } from "node:path";
+import { cpSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 
 const CLI = resolve(import.meta.dirname, "../bin/harnessfile.ts");
 const FIXTURES = resolve(import.meta.dirname, "fixtures");
-const EXAMPLES = resolve(import.meta.dirname, "../../../examples");
+const ALTAVOX = resolve(import.meta.dirname, "../../../examples/altavox");
 
 function run(args: string[]): { stdout: string; exitCode: number } {
   try {
     const stdout = execFileSync("npx", ["tsx", CLI, ...args], {
       encoding: "utf-8",
-      timeout: 15000,
+      timeout: 30000,
       env: { ...process.env, NODE_NO_WARNINGS: "1" },
     });
     return { stdout, exitCode: 0 };
@@ -31,13 +33,14 @@ describe("CLI — help and version", () => {
     expect(stdout).toContain("harnessfile");
     expect(stdout).toContain("up");
     expect(stdout).toContain("validate");
+    expect(stdout).toContain("sync");
     expect(stdout).toContain("status");
   });
 
   it("shows version", () => {
     const { stdout, exitCode } = run(["--version"]);
     expect(exitCode).toBe(0);
-    expect(stdout).toContain("0.1.0");
+    expect(stdout).toContain("0.2.0");
   });
 
   it("shows up command help", () => {
@@ -50,70 +53,45 @@ describe("CLI — help and version", () => {
     expect(stdout).toContain("--checkpointer");
   });
 
-  it("shows validate command help", () => {
-    const { stdout, exitCode } = run(["validate", "--help"]);
+  it("shows sync command help", () => {
+    const { stdout, exitCode } = run(["sync", "--help"]);
     expect(exitCode).toBe(0);
-    expect(stdout).toContain("--provider");
+    expect(stdout).toContain("--target");
+    expect(stdout).toContain("--apply");
+    expect(stdout).toContain("--prune");
+    expect(stdout).toContain("dry-run by default");
   });
 });
 
 // ---- validate command ----
 
 describe("CLI — validate", () => {
-  it("validates minimal.yaml", () => {
-    const { stdout, exitCode } = run([
-      "validate",
-      resolve(FIXTURES, "minimal.yaml"),
-    ]);
-    expect(exitCode).toBe(0);
-    expect(stdout).toContain("Harnessfile is valid");
-  });
+  for (const fixture of [
+    "minimal",
+    "pipeline",
+    "gate",
+    "router",
+    "fanout",
+    "eval-loop",
+    "full",
+    "squad",
+    "scheduled-trigger",
+    "targets",
+  ]) {
+    it(`validates the ${fixture} fixture directory`, () => {
+      const { stdout, exitCode } = run([
+        "validate",
+        resolve(FIXTURES, fixture),
+      ]);
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("Harness is valid");
+    });
+  }
 
-  it("validates pipeline.yaml", () => {
-    const { stdout, exitCode } = run([
+  it("validates a direct harness.yaml path", () => {
+    const { exitCode } = run([
       "validate",
-      resolve(FIXTURES, "pipeline.yaml"),
-    ]);
-    expect(exitCode).toBe(0);
-    expect(stdout).toContain("Harnessfile is valid");
-  });
-
-  it("validates gate.yaml", () => {
-    const { stdout, exitCode } = run([
-      "validate",
-      resolve(FIXTURES, "gate.yaml"),
-    ]);
-    expect(exitCode).toBe(0);
-  });
-
-  it("validates router.yaml", () => {
-    const { stdout, exitCode } = run([
-      "validate",
-      resolve(FIXTURES, "router.yaml"),
-    ]);
-    expect(exitCode).toBe(0);
-  });
-
-  it("validates fanout.yaml", () => {
-    const { stdout, exitCode } = run([
-      "validate",
-      resolve(FIXTURES, "fanout.yaml"),
-    ]);
-    expect(exitCode).toBe(0);
-  });
-
-  it("validates eval-loop.yaml", () => {
-    const { stdout, exitCode } = run([
-      "validate",
-      resolve(FIXTURES, "eval-loop.yaml"),
-    ]);
-    expect(exitCode).toBe(0);
-  });
-
-  it("validates full.yaml", () => {
-    const { stdout, exitCode } = run([
-      "validate",
-      resolve(FIXTURES, "full.yaml"),
+      resolve(FIXTURES, "minimal/harness.yaml"),
     ]);
     expect(exitCode).toBe(0);
   });
@@ -121,7 +99,7 @@ describe("CLI — validate", () => {
   it("validates with provider compatibility check", () => {
     const { stdout, exitCode } = run([
       "validate",
-      resolve(FIXTURES, "pipeline.yaml"),
+      resolve(FIXTURES, "pipeline"),
       "--provider",
       "langgraph",
     ]);
@@ -132,62 +110,100 @@ describe("CLI — validate", () => {
   it("fails on invalid references", () => {
     const { stdout, exitCode } = run([
       "validate",
-      resolve(FIXTURES, "invalid-refs.yaml"),
+      resolve(FIXTURES, "invalid-refs"),
     ]);
     expect(exitCode).toBe(1);
     expect(stdout).toContain("nonexistent-agent");
+    expect(stdout).toContain("nonexistent-squad");
   });
 
   it("fails on invalid cycle", () => {
     const { stdout, exitCode } = run([
       "validate",
-      resolve(FIXTURES, "cycle.yaml"),
+      resolve(FIXTURES, "cycle"),
     ]);
     expect(exitCode).toBe(1);
     expect(stdout).toContain("Cycle detected");
   });
 
-  it("fails on non-existent file", () => {
+  it("fails on missing prompt file", () => {
     const { stdout, exitCode } = run([
       "validate",
-      "/tmp/nonexistent.yaml",
+      resolve(FIXTURES, "broken-prompt"),
     ]);
+    expect(exitCode).toBe(1);
+    expect(stdout).toContain("prompt file not found");
+  });
+
+  it("fails on non-existent path", () => {
+    const { stdout, exitCode } = run(["validate", "/tmp/nonexistent-dir"]);
     expect(exitCode).toBe(1);
     expect(stdout).toContain("not found");
   });
 
-  // ---- Validate all examples from the repo ----
+  it("validates the AltaVox example (project root with .agents/)", () => {
+    const { stdout, exitCode } = run(["validate", ALTAVOX]);
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("10 agent(s)");
+    expect(stdout).toContain("1 squad(s)");
+    expect(stdout).toContain("8 skill(s)");
+    expect(stdout).toContain("Harness is valid");
+  });
+});
 
-  it("validates examples/minimal.yaml", () => {
-    const { exitCode } = run([
-      "validate",
-      resolve(EXAMPLES, "minimal.yaml"),
+// ---- sync command ----
+
+describe("CLI — sync", () => {
+  it("dry-runs a codex sync of the AltaVox example", () => {
+    const { stdout, exitCode } = run([
+      "sync",
+      ALTAVOX,
+      "--target",
+      "codex",
     ]);
     expect(exitCode).toBe(0);
+    expect(stdout).toContain("DRY RUN");
+    expect(stdout).toContain(".codex/agents/engineer.toml");
+    expect(stdout).toContain("Dry run complete");
+    // Dry run never writes
+    expect(existsSync(join(ALTAVOX, ".codex"))).toBe(false);
   });
 
-  it("validates examples/pipeline.yaml", () => {
-    const { exitCode } = run([
-      "validate",
-      resolve(EXAMPLES, "pipeline.yaml"),
-    ]);
-    expect(exitCode).toBe(0);
+  it("requires --target", () => {
+    const { exitCode, stdout } = run(["sync", ALTAVOX]);
+    expect(exitCode).not.toBe(0);
+    expect(stdout).toContain("--target");
   });
 
-  it("validates examples/gate-example.yaml", () => {
-    const { exitCode } = run([
-      "validate",
-      resolve(EXAMPLES, "gate-example.yaml"),
+  it("fails for an unknown target", () => {
+    const { stdout, exitCode } = run([
+      "sync",
+      ALTAVOX,
+      "--target",
+      "nope",
     ]);
-    expect(exitCode).toBe(0);
+    expect(exitCode).toBe(1);
+    expect(stdout).toContain("not defined");
   });
 
-  it("validates examples/full-pipeline.yaml", () => {
-    const { exitCode } = run([
-      "validate",
-      resolve(EXAMPLES, "full-pipeline.yaml"),
-    ]);
-    expect(exitCode).toBe(0);
+  it("applies a claude-code sync in a scratch copy", () => {
+    const dir = mkdtempSync(join(tmpdir(), "harnessfile-cli-sync-"));
+    try {
+      cpSync(resolve(FIXTURES, "sync-plan"), dir, { recursive: true });
+      const { stdout, exitCode } = run([
+        "sync",
+        dir,
+        "--target",
+        "claude-code",
+        "--apply",
+      ]);
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("APPLY");
+      expect(existsSync(join(dir, ".claude", "agents"))).toBe(true);
+      expect(existsSync(join(dir, ".claude", "skills"))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
