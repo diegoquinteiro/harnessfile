@@ -1,7 +1,9 @@
 ---
 name: triager
 description: Triages issues into actionable bug reports.
-model: anthropic/claude-sonnet-4-6
+runtime: claude
+model: claude-sonnet-4-6
+thinking-level: high
 skills: [greeting]
 multica:
   display_name: Triager

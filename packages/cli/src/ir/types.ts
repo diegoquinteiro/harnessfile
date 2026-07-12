@@ -6,6 +6,7 @@
 export interface Harnessfile {
   version: string;
   name?: string;
+  runtimes?: Record<string, RuntimeProfileDef>;
   agents: Record<string, AgentDef>;
   squads?: Record<string, SquadDef>;
   /** Names of skills present in skills/<name>/SKILL.md. */
@@ -25,8 +26,12 @@ export interface AgentDef {
   /** Slug (from frontmatter `name` or the file name). */
   name?: string;
   description?: string;
-  /** Portable default model — optional in v0.2; targets may own this field (D42). */
+  /** Portable runtime profile name — optional when a target owns placement (D52). */
+  runtime?: string;
+  /** Opaque runtime-specific model default; targets may own this field (D52). */
   model?: string;
+  /** Opaque runtime/model-specific reasoning or effort level. */
+  thinkingLevel?: string;
   /** System prompt — the Markdown body of the role card. */
   instructions: string;
   tools?: ToolRef[];
@@ -37,6 +42,19 @@ export interface AgentDef {
 }
 
 export type ToolRef = string | { mcp: string };
+
+// ---- Coding-agent runtimes ----
+
+export interface RuntimeProfileDef {
+  /** Coding-agent protocol family, e.g. claude-code/v1 or codex-app-server/v1. */
+  protocol: string;
+  /** Portable executable name override. Machine-specific paths stay out of the repo. */
+  command?: string;
+  /** Fixed non-secret arguments required by every instance of this profile. */
+  args?: string[];
+  /** x- extension keys. */
+  extra?: Record<string, unknown>;
+}
 
 // ---- Squads ----
 
@@ -62,6 +80,7 @@ export interface SquadDef {
 export const KNOWN_OWNED_FIELDS = [
   "model",
   "runtime",
+  "thinking-level",
   "concurrency",
   "env",
   "mcp",

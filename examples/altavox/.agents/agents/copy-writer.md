@@ -1,7 +1,8 @@
 ---
 name: copy-writer
 description: "Writes and edits UI/UX and marketing copy, and de-slops AI-sounding text in layouts."
-model: anthropic/claude-sonnet-5
+runtime: claude
+model: claude-sonnet-5
 skills: ["copywriting"]
 multica:
   display_name: "Copy Writer"

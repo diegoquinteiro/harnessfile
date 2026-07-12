@@ -47,9 +47,17 @@ export interface TargetDef {
   [k: string]: unknown
 }
 
+export interface RuntimeProfileDef {
+  protocol: string
+  command?: string
+  args?: string[]
+  [k: string]: unknown
+}
+
 export interface HarnessDoc {
   harnessfile?: string
   name?: string
+  runtimes?: Record<string, RuntimeProfileDef>
   triggers?: Record<string, TriggerDef>
   steps?: Record<string, StepDef>
   targets?: Record<string, TargetDef>

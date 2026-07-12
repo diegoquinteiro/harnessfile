@@ -88,7 +88,8 @@ describe("sync — codex/v1", () => {
 
 name = "triager"
 description = "Triages issues into actionable bug reports."
-model = "anthropic/claude-sonnet-4-6"
+model = "claude-sonnet-4-6"
+model_reasoning_effort = "high"
 developer_instructions = """
 # Role
 You triage issues. Deduplicate, ignore noise, file genuine "bugs" only.
@@ -438,6 +439,7 @@ function emptyRemote(): RemoteState {
     autopilots: [],
     runtimes: [
       { id: "rt-1", name: "workstation", status: "online", provider: "claude" },
+      { id: "rt-2", name: "codex-worker", status: "online", provider: "codex" },
     ],
   };
 }
@@ -469,14 +471,13 @@ describe("sync — multica/v1 (fake runner)", () => {
     return () => rmSync(dir, { recursive: true, force: true });
   });
 
-  it("bootstrapModel prefers portable default, then env, then constant", () => {
-    expect(bootstrapModel("anthropic/claude-sonnet-5", {})).toBe(
-      "claude-sonnet-5",
-    );
+  it("bootstrapModel prefers portable default, then env, then runtime default", () => {
+    expect(bootstrapModel("claude-sonnet-5", {})).toBe("claude-sonnet-5");
+    expect(bootstrapModel("custom/model-name", {})).toBe("custom/model-name");
     expect(bootstrapModel(undefined, { MULTICA_DEFAULT_MODEL: "my-model" })).toBe(
       "my-model",
     );
-    expect(bootstrapModel(undefined, {})).toBe("claude-sonnet-4-6");
+    expect(bootstrapModel(undefined, {})).toBeUndefined();
   });
 
   it("dry-run plans creates against an empty remote in order: skills, agents, squads, autopilots", async () => {
@@ -580,8 +581,9 @@ describe("sync — multica/v1 (fake runner)", () => {
       (c) => c[0] === "agent" && c[1] === "create" && c.includes("Triager"),
     );
     expect(triagerCreate).toBeDefined();
-    // Portable default anthropic/claude-sonnet-4-6 → bare model name
+    // Portable model is opaque and passed through unchanged.
     expect(flag(triagerCreate!, "--model")).toBe("claude-sonnet-4-6");
+    expect(flag(triagerCreate!, "--thinking-level")).toBe("high");
 
     // engineer has no portable model → env fallback
     const engineerCreate = runner.calls.find(
@@ -589,6 +591,8 @@ describe("sync — multica/v1 (fake runner)", () => {
     );
     expect(engineerCreate).toBeDefined();
     expect(flag(engineerCreate!, "--model")).toBe("env-fallback-model");
+    expect(flag(triagerCreate!, "--runtime-id")).toBe("rt-1");
+    expect(flag(engineerCreate!, "--runtime-id")).toBe("rt-2");
 
     // Simulate the operator re-pointing the model on Multica
     runner.state.agents.find((a) => a.name === "Triager")!.model =
@@ -609,11 +613,33 @@ describe("sync — multica/v1 (fake runner)", () => {
     expect(updates.length).toBeGreaterThan(0);
     for (const update of updates) {
       expect(update).not.toContain("--model");
+      expect(update).not.toContain("--thinking-level");
       expect(update).toContain("--instructions");
     }
     expect(
       runner.state.agents.find((a) => a.name === "Triager")!.model,
     ).toBe("operator-tuned-model");
+  });
+
+  it("honors a target-side binding to a concrete compatible runtime instance", async () => {
+    const remote = emptyRemote();
+    remote.runtimes.push({
+      id: "rt-codex-pinned",
+      name: "pinned-codex-worker",
+      status: "online",
+      provider: "codex",
+    });
+    const runner = new FakeMulticaRunner(remote);
+
+    await multicaSync(dir, runner, true, {
+      ...WS_ENV,
+      MULTICA_RUNTIME_CODEX_ID: "rt-codex-pinned",
+    });
+
+    const engineerCreate = runner.calls.find(
+      (call) => call[0] === "agent" && call[1] === "create" && call.includes("engineer"),
+    );
+    expect(flag(engineerCreate!, "--runtime-id")).toBe("rt-codex-pinned");
   });
 
   it("applies the full push: skills, files, agents, squad members, autopilot trigger", async () => {
@@ -747,6 +773,21 @@ describe("sync — multica/v1 (fake runner)", () => {
       result.warnings.some((w) => w.includes("no ONLINE runtime")),
     ).toBe(true);
     expect(runner.state.agents).toHaveLength(0);
+  });
+
+  it("never places a profiled agent on a different runtime family", async () => {
+    const remote = emptyRemote();
+    remote.runtimes = remote.runtimes.filter((runtime) => runtime.provider === "claude");
+    const runner = new FakeMulticaRunner(remote);
+
+    const result = await multicaSync(dir, runner, true, WS_ENV);
+    expect(runner.state.agents.some((agent) => agent.name === "engineer")).toBe(false);
+    expect(runner.state.agents.some((agent) => agent.name === "Triager")).toBe(true);
+    expect(
+      result.warnings.some(
+        (warning) => warning.includes("agent 'engineer'") && warning.includes("no ONLINE runtime"),
+      ),
+    ).toBe(true);
   });
 });
 

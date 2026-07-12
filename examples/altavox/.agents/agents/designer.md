@@ -1,7 +1,8 @@
 ---
 name: designer
 description: "Mocks up screens following the project's design system, from low-fi exploration to hi-fi handoff."
-model: anthropic/claude-opus-4-8
+runtime: claude
+model: claude-opus-4-8
 skills: ["wireframe", "polish-pass"]
 multica:
   display_name: "Designer"

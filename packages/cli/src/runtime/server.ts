@@ -59,6 +59,7 @@ export class HarnessServer {
     // 4. Compile
     const providerOptions: ProviderOptions = {
       checkpointer: options.checkpointer ?? "memory",
+      workspaceRoot: harness.root,
     };
     const compiledHarness = await provider.compile(ir, providerOptions);
     logInfo("Graph compiled");

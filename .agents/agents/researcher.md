@@ -1,7 +1,8 @@
 ---
 name: researcher
 description: "Researches the codebase, the decision record, and the agent-ecosystem landscape (standards, protocols, competitors) to compile the context an issue or a watch sweep needs."
-model: anthropic/claude-opus-4-8
+runtime: claude
+model: claude-opus-4-8
 skills: []
 ---
 

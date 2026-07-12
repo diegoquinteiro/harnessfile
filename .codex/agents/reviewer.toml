@@ -2,7 +2,7 @@
 
 name = "reviewer"
 description = "The mandatory quality gate: correctness, spec-artifact consistency, and design fidelity — before any work reaches a human."
-model = "anthropic/claude-opus-4-8"
+model = "claude-opus-4-8"
 developer_instructions = """
 # Role
 You are the Reviewer, the quality gate before any human review. Nothing merges un-reviewed.

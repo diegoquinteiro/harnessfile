@@ -17,6 +17,9 @@ export function renderCodexAgent(slug: string, agent: AgentDef): string {
   if (agent.model) {
     lines.push(tomlKeyValue("model", agent.model));
   }
+  if (agent.thinkingLevel) {
+    lines.push(tomlKeyValue("model_reasoning_effort", agent.thinkingLevel));
+  }
   lines.push(
     `developer_instructions = ${tomlMultilineString(agent.instructions)}`,
   );

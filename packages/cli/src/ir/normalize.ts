@@ -16,6 +16,7 @@ import type {
   ResilienceDef,
   ToolRef,
   ProviderRef,
+  RuntimeProfileDef,
 } from "./types.js";
 
 // Normalizes a raw parsed harness (assembled from the .agents/ directory) into a typed IR.
@@ -25,7 +26,9 @@ import type {
 const AGENT_KNOWN_KEYS = new Set([
   "name",
   "description",
+  "runtime",
   "model",
+  "thinking-level",
   "instructions",
   "tools",
   "skills",
@@ -42,6 +45,15 @@ const SQUAD_KNOWN_KEYS = new Set([
 export function normalize(raw: Record<string, unknown>): Harnessfile {
   const version = expectString(raw, "harnessfile", "harnessfile version");
   const name = optString(raw, "name");
+
+  let runtimes: Record<string, RuntimeProfileDef> | undefined;
+  const rawRuntimes = optObject(raw, "runtimes");
+  if (rawRuntimes) {
+    runtimes = {};
+    for (const [key, value] of Object.entries(rawRuntimes)) {
+      runtimes[key] = normalizeRuntimeProfile(value, key);
+    }
+  }
 
   const rawAgents = optObject(raw, "agents") ?? {};
   const agents: Record<string, AgentDef> = {};
@@ -99,6 +111,7 @@ export function normalize(raw: Record<string, unknown>): Harnessfile {
   return {
     version,
     name,
+    runtimes,
     agents,
     squads,
     skills,
@@ -127,7 +140,9 @@ function normalizeAgent(raw: unknown, name: string): AgentDef {
   const agent: AgentDef = {
     name: optString(obj, "name") ?? name,
     description: optString(obj, "description"),
+    runtime: optString(obj, "runtime"),
     model: optString(obj, "model"),
+    thinkingLevel: optString(obj, "thinking-level"),
     instructions: optString(obj, "instructions") ?? "",
     tools: obj["tools"] ? normalizeTools(obj["tools"] as unknown[]) : undefined,
     skills: obj["skills"] ? (obj["skills"] as string[]) : undefined,
@@ -135,6 +150,23 @@ function normalizeAgent(raw: unknown, name: string): AgentDef {
   const passthrough = collectPassthrough(obj, AGENT_KNOWN_KEYS);
   if (passthrough) agent.passthrough = passthrough;
   return agent;
+}
+
+// ---- Coding-agent runtimes ----
+
+function normalizeRuntimeProfile(raw: unknown, name: string): RuntimeProfileDef {
+  const obj = asObject(raw, `runtime '${name}'`);
+  const profile: RuntimeProfileDef = {
+    protocol: obj["protocol"] as string,
+    command: optString(obj, "command"),
+    args: Array.isArray(obj["args"]) ? (obj["args"] as string[]) : undefined,
+  };
+  const extra: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (key.startsWith("x-")) extra[key] = value;
+  }
+  if (Object.keys(extra).length > 0) profile.extra = extra;
+  return profile;
 }
 
 function normalizeTools(raw: unknown[]): ToolRef[] {

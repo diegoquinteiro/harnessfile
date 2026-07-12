@@ -1,4 +1,5 @@
 import type { Harnessfile } from "../ir/types.js";
+import type { RuntimeExecutor } from "../agent-runtimes/interface.js";
 
 // ---- Provider contract ----
 
@@ -18,6 +19,9 @@ export interface HarnessProvider {
 
 export interface ProviderOptions {
   checkpointer?: "memory" | "sqlite";
+  workspaceRoot?: string;
+  /** Runtime executor override, primarily for embedded hosts and deterministic tests. */
+  runtimeExecutor?: RuntimeExecutor;
 }
 
 export interface ValidationResult {
@@ -88,6 +92,7 @@ export type HarnessEventType =
   | "gate-resolved"
   | "hook"
   | "eval"
+  | "runtime"
   | "warning"
   | "run-start"
   | "run-end";

@@ -1,7 +1,8 @@
 ---
 name: ui-engineer
 description: "Builds and maintains the visual editor (ui/) — a faithful Fermata design-system artifact with faithful multi-file round-trip."
-model: anthropic/claude-sonnet-5
+runtime: claude
+model: claude-sonnet-5
 skills: ["fermata-fidelity", "spec-consistency"]
 ---
 

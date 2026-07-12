@@ -9,6 +9,11 @@
   "properties": {
     "harnessfile": { "const": "0.2", "description": "Spec version." },
     "name": { "type": "string", "minLength": 1 },
+    "runtimes": {
+      "type": "object",
+      "description": "Portable coding-agent runtime profiles (D52, D53).",
+      "additionalProperties": { "$ref": "#/$defs/runtimeProfile" }
+    },
     "triggers": {
       "type": "object",
       "description": "Entry nodes. Sugar for steps with type: trigger.",
@@ -54,6 +59,26 @@
       "additionalProperties": true
     },
     "duration": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h|d)$" },
+    "runtimeProfile": {
+      "type": "object",
+      "required": ["protocol"],
+      "additionalProperties": false,
+      "properties": {
+        "protocol": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+/v[0-9]+$",
+          "description": "Coding-agent wire protocol family, not a model or deployment provider."
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^/\\\\]+$",
+          "description": "Portable executable name. Machine-specific absolute paths are target state."
+        },
+        "args": { "type": "array", "items": { "type": "string", "pattern": "^[^\\u0000]*$" } }
+      },
+      "patternProperties": { "^x-": {} }
+    },
     "trigger": {
       "type": "object",
       "additionalProperties": false,

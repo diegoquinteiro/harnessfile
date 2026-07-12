@@ -1,6 +1,12 @@
 harnessfile: "0.2"
 name: broken-prompt
 
+runtimes:
+  claude:
+    protocol: claude-code/v1
+  codex:
+    protocol: codex-app-server/v1
+
 triggers:
   sweep:
     schedule: "0 * * * *"

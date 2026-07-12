@@ -1,7 +1,8 @@
 ---
 name: researcher
 description: "Researches the code, prior decisions, and the web to compile the context an issue needs before it is assessed or planned."
-model: anthropic/claude-opus-4-8
+runtime: claude
+model: claude-opus-4-8
 skills: ["research"]
 multica:
   display_name: "Researcher"

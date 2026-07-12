@@ -1,6 +1,12 @@
 harnessfile: "0.2"
 name: squad-harness
 
+runtimes:
+  claude:
+    protocol: claude-code/v1
+  codex:
+    protocol: codex-app-server/v1
+
 triggers:
   issue-assigned:
     provider: webhook/v1

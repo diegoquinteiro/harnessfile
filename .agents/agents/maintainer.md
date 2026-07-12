@@ -1,7 +1,8 @@
 ---
 name: maintainer
 description: "Leads the maintenance squad: routes work by type, enforces the decision-record process, and keeps every artifact of the spec in sync before anything reaches a human."
-model: anthropic/claude-sonnet-5
+runtime: claude
+model: claude-sonnet-5
 skills: ["decision-record", "spec-consistency"]
 ---
 

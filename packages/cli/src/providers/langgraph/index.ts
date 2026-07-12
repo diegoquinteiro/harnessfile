@@ -13,6 +13,7 @@ import type {
   HarnessEvent,
 } from "../interface.js";
 import { buildGraph } from "./graph-builder.js";
+import { runtimeProtocol } from "../../agent-runtimes/registry.js";
 
 export class LangGraphProvider implements HarnessProvider {
   name = "langgraph";
@@ -22,30 +23,43 @@ export class LangGraphProvider implements HarnessProvider {
     const errors: ValidationResult["errors"] = [];
     const warnings: ValidationResult["warnings"] = [];
 
-    // Check that all agent models use supported providers.
-    // Models are optional portable defaults in v0.2 (targets may own them), but
-    // this runtime executes agents itself — warn when a model is missing.
+    const localProtocols = new Set(["claude-code/v1", "codex-app-server/v1"]);
+    const executedAgents = new Set<string>();
+    for (const step of Object.values(ir.steps ?? {})) {
+      if (step.agent) executedAgents.add(step.agent);
+      if (step.squad) {
+        const squad = ir.squads?.[step.squad];
+        if (squad) {
+          executedAgents.add(squad.leader);
+          for (const member of squad.members) executedAgents.add(member.agent);
+        }
+      }
+    }
+
+    // LangGraph coordinates the graph; coding-agent protocol drivers execute agents (D52–D53).
     for (const [name, agent] of Object.entries(ir.agents)) {
-      if (!agent.model) {
-        warnings.push({
-          path: `agents.${name}.model`,
-          message: `Agent '${name}' has no portable model default — required if this agent runs on the langgraph runtime.`,
-        });
+      if (!agent.runtime) {
+        const issue = {
+          path: `agents.${name}.runtime`,
+          message: `Agent '${name}' has no portable runtime profile — required if this agent executes through local 'up'.`,
+        };
+        if (executedAgents.has(name)) errors.push(issue);
+        else warnings.push(issue);
         continue;
       }
-      const slash = agent.model.indexOf("/");
-      if (slash === -1) {
+      const profile = ir.runtimes?.[agent.runtime];
+      if (!profile) {
         errors.push({
-          path: `agents.${name}.model`,
-          message: `Model '${agent.model}' must be in 'provider/model-name' format.`,
+          path: `agents.${name}.runtime`,
+          message: `Agent '${name}' references undefined runtime profile '${agent.runtime}'.`,
         });
         continue;
       }
-      const provider = agent.model.slice(0, slash);
-      if (!["anthropic", "openai"].includes(provider)) {
+      const protocol = runtimeProtocol(profile);
+      if (!localProtocols.has(protocol)) {
         warnings.push({
-          path: `agents.${name}.model`,
-          message: `Model provider '${provider}' may not be supported. Supported: anthropic, openai.`,
+          path: `runtimes.${agent.runtime}.protocol`,
+          message: `Runtime protocol '${protocol}' has no built-in local driver. Supported: ${[...localProtocols].join(", ")}.`,
         });
       }
     }

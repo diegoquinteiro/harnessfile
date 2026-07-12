@@ -9,14 +9,14 @@ risk×ambiguity gates, with an hourly Sentry triage autopilot.
 | Spec feature | Where |
 |---|---|
 | The `.agents/` directory | this folder |
-| Agent role cards (Markdown + frontmatter, portable `model:` defaults) | [`.agents/agents/`](.agents/agents/) |
+| Agent role cards with portable runtime and opaque model defaults | [`.agents/agents/`](.agents/agents/) |
 | A squad as an agent-compatible orchestrator node (D40) | [`.agents/squads/development.md`](.agents/squads/development.md) + `steps.development` |
 | Leader-orchestration in prose (risk×ambiguity routing, three paths, UI overlay) | the squad body |
 | Scheduled trigger with a prompt — the "autopilot" form (D41) | `triggers.sentry-sweep` → [`.agents/autopilots/sentry-triage.md`](.agents/autopilots/sentry-triage.md) |
 | Board trigger with a swappable provider | `triggers.issue-assigned` (`multica/v1` — same shape for `jira/v1`, `linear/v1`, `github/v1`) |
 | Targets with `owns` and bootstrap-then-hands-off (D42) | `targets.multica` |
 | Agent Skills (SKILL.md) with supporting files | [`.agents/skills/`](.agents/skills/) (e.g. `risk-assessment/scripts/score.py`) |
-| Per-role portable model defaults | Opus for reasoning roles, Sonnet for execution roles, a Codex model for the Reviewer |
+| Per-role runtime/model defaults | Claude Code for most roles, Codex for the Reviewer; model and effort remain runtime-specific |
 
 ## Try it
 
@@ -32,5 +32,5 @@ harnessfile up examples/altavox                                 # headless runti
 This is the real AltaVox harness with light trims for example purposes: the Designer role card is
 condensed (the production one is ~34 KB) and its skill list — plus the Copy Writer's — is trimmed to
 the skills bundled here; internal repository URLs are genericized. In production the operational
-fields (model, runtime, concurrency, env) are owned by Multica; the `model:` values here are the
-portable defaults that seed that target at bootstrap.
+fields (model, runtime, thinking-level, concurrency, env) are owned by Multica; the role-card
+values here are portable defaults that seed that target at bootstrap.

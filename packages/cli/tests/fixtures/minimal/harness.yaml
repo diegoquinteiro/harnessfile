@@ -1,2 +1,8 @@
 harnessfile: "0.2"
 name: minimal
+
+runtimes:
+  claude:
+    protocol: claude-code/v1
+  codex:
+    protocol: codex-app-server/v1

@@ -1,6 +1,12 @@
 harnessfile: "0.2"
 name: sync-plan
 
+runtimes:
+  claude:
+    protocol: claude-code/v1
+  codex:
+    protocol: codex-app-server/v1
+
 triggers:
   nightly-sweep:
     schedule: "0 3 * * *"
@@ -18,7 +24,7 @@ steps:
 targets:
   multica:
     provider: multica/v1
-    owns: [model, runtime, concurrency, env, mcp]
+    owns: [model, runtime, thinking-level, concurrency, env, mcp]
   claude-code:
     provider: claude-code/v1
   codex:

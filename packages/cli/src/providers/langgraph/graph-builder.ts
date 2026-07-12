@@ -4,6 +4,7 @@ import type { Harnessfile, StepDef } from "../../ir/types.js";
 import { buildStateAnnotation } from "./state-builder.js";
 import { buildNodeFunctions, type EventEmitter } from "./node-builder.js";
 import type { ProviderOptions } from "../interface.js";
+import { RuntimeDispatcher } from "../../agent-runtimes/dispatcher.js";
 
 // Builds a compiled LangGraph StateGraph from the harnessfile IR.
 // The compiled graph can be invoked multiple times with different thread IDs.
@@ -19,7 +20,10 @@ export function buildGraph(
   const graph: any = new StateGraph(StateAnnotation);
 
   // Build and add all node functions
-  const nodeFns = buildNodeFunctions(ir, emit);
+  const runtime =
+    options.runtimeExecutor ??
+    new RuntimeDispatcher(ir, { workspaceRoot: options.workspaceRoot });
+  const nodeFns = buildNodeFunctions(ir, emit, runtime);
   for (const [name, fn] of nodeFns) {
     graph.addNode(name, fn);
   }

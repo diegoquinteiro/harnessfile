@@ -4,6 +4,12 @@
 harnessfile: "0.2"
 name: altavox-development
 
+runtimes:
+  claude:
+    protocol: claude-code/v1
+  codex:
+    protocol: codex-app-server/v1
+
 observability:
   tracing: otel/v1
 
@@ -38,7 +44,7 @@ targets:
     provider: multica/v1
     # bootstrap-then-hands-off: seeded from the portable defaults on first push,
     # never overwritten afterwards (D42).
-    owns: [model, runtime, concurrency, env, mcp]
+    owns: [model, runtime, thinking-level, concurrency, env, mcp]
   claude-code:
     provider: claude-code/v1 # materializes .claude/{agents,skills} symlinks
   codex:

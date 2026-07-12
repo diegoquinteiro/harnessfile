@@ -1,7 +1,8 @@
 ---
 name: engineer
 description: "Implements an approved plan in code and opens or updates the linked pull request."
-model: anthropic/claude-sonnet-5
+runtime: claude
+model: claude-sonnet-5
 skills: ["ponytail"]
 multica:
   display_name: "Engineer"

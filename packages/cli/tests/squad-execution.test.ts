@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { resolve } from "node:path";
-import { AIMessage } from "@langchain/core/messages";
 import { loadHarnessDirectory } from "../src/parser/directory.js";
 import { LangGraphProvider } from "../src/providers/langgraph/index.js";
 import type { Harnessfile } from "../src/ir/types.js";
@@ -11,66 +10,46 @@ function loadIR(fixture: string): Harnessfile {
   return loadHarnessDirectory(resolve(FIXTURES, fixture)).ir;
 }
 
-// Mock chat models for the squad orchestration loop.
-// The leader model is recognized by the protocol block in its system prompt; its
+// Mock coding-agent runtimes for the squad orchestration loop.
+// The leader is recognized by the protocol block in its task prompt; its
 // behavior is switched per test via globalThis.__squadLeaderMode.
 declare global {
   // eslint-disable-next-line no-var
   var __squadLeaderMode: "normal" | "never-done" | "prose" | undefined;
 }
 
-vi.mock("../src/providers/langgraph/model-factory.js", () => {
+vi.mock("../src/agent-runtimes/dispatcher.js", () => {
   return {
-    createChatModel: (_modelSpec: string) => {
-      let leaderTurn = 0;
-      return {
-        invoke: vi.fn(async (messages: any[]) => {
-          const systemMsg = messages.find(
-            (m: any) =>
-              m._getType?.() === "system" ||
-              m.constructor?.name === "SystemMessage",
-          );
-          const content: string =
-            typeof systemMsg?.content === "string" ? systemMsg.content : "";
-
-          const isLeader = content.includes("You are the squad leader");
+    RuntimeDispatcher: class {
+      leaderTurn = 0;
+      execute = vi.fn(async (agentName: string, prompt: string) => {
+          const isLeader = prompt.includes("You are the squad leader");
           if (isLeader) {
             const mode = globalThis.__squadLeaderMode ?? "normal";
             if (mode === "never-done") {
-              return new AIMessage(
-                '{"action": "dispatch", "member": "researcher", "instruction": "keep digging"}',
-              );
+              return { output: '{"action": "dispatch", "member": "researcher", "instruction": "keep digging"}' };
             }
             if (mode === "prose") {
-              return new AIMessage("I cannot decide what to do next.");
+              return { output: "I cannot decide what to do next." };
             }
-            leaderTurn++;
-            if (leaderTurn === 1) {
-              return new AIMessage(
-                '{"action": "dispatch", "member": "researcher", "instruction": "gather context on the issue"}',
-              );
+            this.leaderTurn++;
+            if (this.leaderTurn === 1) {
+              return { output: '{"action": "dispatch", "member": "researcher", "instruction": "gather context on the issue"}' };
             }
-            if (leaderTurn === 2) {
-              return new AIMessage(
-                '{"action": "dispatch", "member": "engineer", "instruction": "implement the fix"}',
-              );
+            if (this.leaderTurn === 2) {
+              return { output: '{"action": "dispatch", "member": "engineer", "instruction": "implement the fix"}' };
             }
-            return new AIMessage(
-              '{"action": "done", "summary": "Fix implemented and verified."}',
-            );
+            return { output: '{"action": "done", "summary": "Fix implemented and verified."}' };
           }
 
-          // Member models: identify themselves by their role card
-          if (content.includes("You research")) {
-            return new AIMessage("Research findings: the bug is in module X.");
+          if (agentName === "researcher") {
+            return { output: "Research findings: the bug is in module X." };
           }
-          if (content.includes("You implement")) {
-            return new AIMessage("Implemented the fix in module X, PR opened.");
+          if (agentName === "engineer") {
+            return { output: "Implemented the fix in module X, PR opened." };
           }
-          return new AIMessage("Generic member output.");
-        }),
-        constructor: { name: "MockChatModel" },
-      };
+          return { output: "Generic member output." };
+      });
     },
   };
 });
@@ -103,6 +82,48 @@ describe("execution — squad orchestration loop", () => {
       "engineer",
     ]);
     expect(dispatches[0].instruction).toBe("gather context on the issue");
+  });
+
+  it("checkpoints and resumes each coding agent's native session", async () => {
+    const ir = loadIR("squad");
+    const calls: Array<{ agent: string; options: any }> = [];
+    let leaderTurn = 0;
+    const runtimeExecutor = {
+      start: vi.fn(),
+      execute: vi.fn(async (agent: string, _prompt: string, options?: any) => {
+        calls.push({ agent, options });
+        const output = agent === "pm"
+          ? (++leaderTurn === 1
+              ? '{"action":"dispatch","member":"researcher","instruction":"investigate"}'
+              : '{"action":"done","summary":"complete"}')
+          : "findings";
+        return {
+          status: "completed" as const,
+          output,
+          durationMs: 1,
+          resume: {
+            sessionId: `${agent}-session`,
+            instanceId: `${agent}-instance`,
+            workspaceRoot: "/repo",
+          },
+        };
+      }),
+    };
+    const compiled = await provider.compile(ir, {
+      checkpointer: "memory",
+      runtimeExecutor,
+    });
+
+    const result = await (await compiled.createRun({ issue: "Resume sessions" })).result;
+    expect(result.status).toBe("completed");
+    const leaderCalls = calls.filter((call) => call.agent === "pm");
+    expect(leaderCalls).toHaveLength(2);
+    expect(leaderCalls[0].options.resume).toBeUndefined();
+    expect(leaderCalls[1].options.resume).toEqual({
+      sessionId: "pm-session",
+      instanceId: "pm-instance",
+      workspaceRoot: "/repo",
+    });
   });
 
   it("emits step events per dispatch", async () => {

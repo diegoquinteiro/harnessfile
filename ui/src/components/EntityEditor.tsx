@@ -4,7 +4,7 @@ import { useStore, type EntityKind } from '../store'
 import type { SquadMember } from '../types'
 import { KV, SelectField, TextField } from './fields'
 
-const AGENT_KEYS = ['name', 'description', 'model', 'tools', 'skills']
+const AGENT_KEYS = ['name', 'description', 'runtime', 'model', 'thinking-level', 'tools', 'skills']
 const SQUAD_KEYS = ['name', 'description', 'leader', 'members']
 
 function passthroughKeys(fm: Record<string, unknown>, known: string[]): Record<string, unknown> {
@@ -90,6 +90,7 @@ function EditorCard(props: {
 
 function AgentEditor({ slug }: { slug: string }) {
   const agents = useStore((s) => s.agents)
+  const harness = useStore((s) => s.harness)
   const skills = useStore((s) => s.skills)
   const updateEntity = useStore((s) => s.updateEntity)
   const agent = agents.find((a) => a.slug === slug)
@@ -108,6 +109,7 @@ function AgentEditor({ slug }: { slug: string }) {
   const rest = passthroughKeys(agent.fm, AGENT_KEYS)
   const tools = Array.isArray(agent.fm.tools) ? agent.fm.tools.map(String) : []
   const agentSkills = Array.isArray(agent.fm.skills) ? agent.fm.skills.map(String) : []
+  const runtimeOptions = Object.keys(harness?.runtimes ?? {}).map((value) => ({ value }))
 
   return (
     <EditorCard
@@ -123,12 +125,26 @@ function AgentEditor({ slug }: { slug: string }) {
           onChange={(v) => patchFm('name', v)}
           hint="should match the file name"
         />
+        <SelectField
+          label="runtime"
+          value={String(agent.fm.runtime ?? '')}
+          options={runtimeOptions}
+          allowEmpty
+          onChange={(v) => patchFm('runtime', v)}
+        />
         <TextField
           label="model"
           value={String(agent.fm.model ?? '')}
-          placeholder="anthropic/claude-sonnet-5"
+          placeholder="claude-sonnet-5 or gpt-5.5-codex"
           onChange={(v) => patchFm('model', v)}
-          hint="portable default — targets may own this (D42)"
+          hint="opaque runtime-specific default — targets may own this (D52)"
+        />
+        <TextField
+          label="thinking level"
+          value={String(agent.fm['thinking-level'] ?? '')}
+          placeholder="high"
+          onChange={(v) => patchFm('thinking-level', v)}
+          hint="allowed values depend on the runtime and model"
         />
         <div className="field field--full">
           <label className="field__label">description</label>

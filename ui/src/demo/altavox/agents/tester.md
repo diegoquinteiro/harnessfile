@@ -1,7 +1,8 @@
 ---
 name: tester
 description: "Writes E2E tests and records desktop and mobile video plus screenshot evidence on the real app screens."
-model: anthropic/claude-sonnet-5
+runtime: claude
+model: claude-sonnet-5
 skills: ["video-test"]
 multica:
   display_name: "Tester"

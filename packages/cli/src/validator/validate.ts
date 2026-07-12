@@ -15,6 +15,7 @@ export function validateHarnessfile(ir: Harnessfile): ValidationResult {
 
   validateVersion(ir, errors);
   validateName(ir, errors);
+  validateRuntimes(ir, errors);
   validateAgents(ir, errors, warnings);
   validateSquads(ir, errors);
   validateTargets(ir, errors, warnings);
@@ -25,6 +26,36 @@ export function validateHarnessfile(ir: Harnessfile): ValidationResult {
   }
 
   return { valid: errors.length === 0, errors, warnings };
+}
+
+function validateRuntimes(ir: Harnessfile, errors: ValidationError[]) {
+  for (const [name, runtime] of Object.entries(ir.runtimes ?? {})) {
+    if (!runtime.protocol) {
+      errors.push({
+        path: `runtimes.${name}.protocol`,
+        message: `Runtime profile '${name}' is missing a protocol family.`,
+      });
+    } else if (!/^[a-z0-9-]+\/v[0-9]+$/.test(runtime.protocol)) {
+      errors.push({
+        path: `runtimes.${name}.protocol`,
+        message: `Runtime profile '${name}' has invalid protocol '${runtime.protocol}'. Expected <family>/v<version>.`,
+      });
+    }
+    if (runtime.command && (runtime.command.includes("/") || runtime.command.includes("\\"))) {
+      errors.push({
+        path: `runtimes.${name}.command`,
+        message: `Runtime profile '${name}' command must be a portable executable name, not a machine-specific path.`,
+      });
+    }
+    for (const [index, arg] of (runtime.args ?? []).entries()) {
+      if (typeof arg !== "string" || arg.includes("\0")) {
+        errors.push({
+          path: `runtimes.${name}.args.${index}`,
+          message: `Runtime profile '${name}' fixed arguments must be strings without NUL bytes.`,
+        });
+      }
+    }
+  }
 }
 
 function validateVersion(ir: Harnessfile, errors: ValidationError[]) {
@@ -68,6 +99,12 @@ function validateAgents(
       errors.push({
         path: `agents.${name}.instructions`,
         message: `Agent '${name}' is missing instructions (the Markdown body).`,
+      });
+    }
+    if (agent.runtime && !ir.runtimes?.[agent.runtime]) {
+      errors.push({
+        path: `agents.${name}.runtime`,
+        message: `Agent '${name}' references undefined runtime profile '${agent.runtime}'.`,
       });
     }
     for (const skill of agent.skills ?? []) {

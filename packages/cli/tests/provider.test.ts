@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { resolve } from "node:path";
 import { loadHarnessDirectory } from "../src/parser/directory.js";
-import { createChatModel } from "../src/providers/langgraph/model-factory.js";
 import { buildStateAnnotation } from "../src/providers/langgraph/state-builder.js";
 import {
   buildNodeFunctions,
@@ -32,34 +31,6 @@ describe("provider registry", () => {
 
   it("throws for unknown provider", () => {
     expect(() => getProvider("nonexistent")).toThrow("Unknown provider");
-  });
-});
-
-// ---- Model factory ----
-
-describe("createChatModel", () => {
-  it("creates ChatAnthropic for anthropic/ prefix", () => {
-    const model = createChatModel("anthropic/claude-sonnet-4-6");
-    expect(model).toBeDefined();
-    expect(model.constructor.name).toBe("ChatAnthropic");
-  });
-
-  it("creates ChatOpenAI for openai/ prefix", () => {
-    const model = createChatModel("openai/gpt-4");
-    expect(model).toBeDefined();
-    expect(model.constructor.name).toBe("ChatOpenAI");
-  });
-
-  it("throws for model without slash", () => {
-    expect(() => createChatModel("no-slash")).toThrow(
-      "Expected 'provider/model-name'",
-    );
-  });
-
-  it("throws for unsupported provider", () => {
-    expect(() => createChatModel("google/gemini-pro")).toThrow(
-      "Unsupported model provider",
-    );
   });
 });
 
@@ -162,20 +133,6 @@ describe("buildNodeFunctions", () => {
     );
   });
 
-  it("throws when an executed agent has no model", () => {
-    const ir: Harnessfile = {
-      version: "0.2",
-      name: "x",
-      agents: {
-        a: { name: "a", description: "d", instructions: "x" },
-      },
-      steps: {
-        s: { type: "agent", agent: "a" } as StepDef,
-      },
-    };
-    expect(() => buildNodeFunctions(ir)).toThrow("has no model");
-  });
-
   it("throws when router step has no agent", () => {
     const ir: Harnessfile = {
       version: "0.2",
@@ -270,20 +227,21 @@ describe("LangGraphProvider.validate", () => {
     expect(result.valid).toBe(true);
   });
 
-  it("errors on invalid model format", () => {
+  it("accepts opaque runtime-specific model names", () => {
     const ir: Harnessfile = {
       version: "0.2",
       name: "x",
+      runtimes: { claude: { protocol: "claude-code/v1" } },
       agents: {
-        a: { name: "a", description: "d", model: "no-slash", instructions: "test" },
+        a: { name: "a", description: "d", runtime: "claude", model: "no-slash", instructions: "test" },
       },
     };
     const result = provider.validate(ir);
-    expect(result.valid).toBe(false);
-    expect(result.errors[0].message).toContain("provider/model-name");
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
   });
 
-  it("warns on missing model", () => {
+  it("warns on missing runtime profile", () => {
     const ir: Harnessfile = {
       version: "0.2",
       name: "x",
@@ -293,29 +251,43 @@ describe("LangGraphProvider.validate", () => {
     };
     const result = provider.validate(ir);
     expect(result.valid).toBe(true);
-    expect(result.warnings[0].message).toContain("no portable model default");
+    expect(result.warnings[0].message).toContain("no portable runtime profile");
   });
 
-  it("warns on unsupported model provider", () => {
+  it("errors when a locally executed agent has no runtime profile", () => {
     const ir: Harnessfile = {
       version: "0.2",
       name: "x",
+      agents: { a: { name: "a", description: "d", instructions: "test" } },
+      steps: { run: { type: "agent", agent: "a" } },
+    };
+    const result = provider.validate(ir);
+    expect(result.valid).toBe(false);
+    expect(result.errors[0].message).toContain("no portable runtime profile");
+  });
+
+  it("warns on unsupported local runtime protocol", () => {
+    const ir: Harnessfile = {
+      version: "0.2",
+      name: "x",
+      runtimes: { gemini: { protocol: "gemini-cli/v1" } },
       agents: {
-        a: { name: "a", description: "d", model: "google/gemini-pro", instructions: "test" },
+        a: { name: "a", description: "d", runtime: "gemini", model: "gemini-pro", instructions: "test" },
       },
     };
     const result = provider.validate(ir);
     expect(result.valid).toBe(true); // warning, not error
     expect(result.warnings).toHaveLength(1);
-    expect(result.warnings[0].message).toContain("may not be supported");
+    expect(result.warnings[0].message).toContain("no built-in local driver");
   });
 
   it("errors on squad step referencing an undefined squad", () => {
     const ir: Harnessfile = {
       version: "0.2",
       name: "x",
+      runtimes: { claude: { protocol: "claude-code/v1" } },
       agents: {
-        a: { name: "a", description: "d", model: "anthropic/x", instructions: "t" },
+        a: { name: "a", description: "d", runtime: "claude", model: "x", instructions: "t" },
       },
       steps: {
         s: { type: "squad", squad: "ghost" } as StepDef,

@@ -1,7 +1,8 @@
 ---
 name: sentry-triage
 description: "Turns genuine, uncaptured Sentry bugs into backlog issues — bugs only, never user reports or improvements."
-model: anthropic/claude-sonnet-5
+runtime: claude
+model: claude-sonnet-5
 skills: []
 multica:
   display_name: "Sentry Triage"

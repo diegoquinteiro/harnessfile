@@ -1,6 +1,7 @@
 ---
 name: engineer
 description: Implements approved plans.
+runtime: codex
 ---
 You implement approved plans with minimal blast radius.
 

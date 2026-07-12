@@ -33,6 +33,41 @@ export function validate(project: ParsedProject): Problem[] {
   const agentSlugs = new Set(agents.map((a) => a.slug))
   const squadSlugs = new Set(squads.map((s) => s.slug))
   const skillNames = new Set(skills.map((s) => s.name))
+  const runtimeNames = new Set(Object.keys(harness.runtimes ?? {}))
+
+  for (const [name, runtime] of Object.entries(harness.runtimes ?? {})) {
+    if (!runtime.protocol) {
+      problems.push({
+        severity: 'error',
+        where: `runtimes.${name}`,
+        message: 'runtime profile needs a protocol family',
+      })
+    } else if (!/^[a-z0-9-]+\/v[0-9]+$/.test(runtime.protocol)) {
+      problems.push({
+        severity: 'error',
+        where: `runtimes.${name}.protocol`,
+        message: 'runtime protocol must match <family>/v<version>',
+      })
+    }
+    if (runtime.command && (runtime.command.includes('/') || runtime.command.includes('\\'))) {
+      problems.push({
+        severity: 'error',
+        where: `runtimes.${name}.command`,
+        message: 'runtime command must be a portable executable name, not a path',
+      })
+    }
+  }
+
+  for (const agent of agents) {
+    const runtime = typeof agent.fm.runtime === 'string' ? agent.fm.runtime : undefined
+    if (runtime && !runtimeNames.has(runtime)) {
+      problems.push({
+        severity: 'error',
+        where: agent.path,
+        message: `runtime "${runtime}" not found in harness.yaml runtimes`,
+      })
+    }
+  }
 
   const triggers = harness.triggers ?? {}
   const steps = harness.steps ?? {}

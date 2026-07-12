@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import type { Harnessfile, StepDef } from "../../ir/types.js";
+import { runtimeProtocol } from "../../agent-runtimes/registry.js";
 import { splitFrontmatter } from "../../parser/frontmatter.js";
 import { isOwned, planOwnedFields } from "../ownership.js";
 import type { SyncAdapter, SyncContext, SyncResult } from "../types.js";
@@ -53,7 +54,6 @@ export class CliMulticaRunner implements MulticaRunner {
   }
 }
 
-const DEFAULT_MODEL_FALLBACK = "claude-sonnet-4-6";
 const DEFAULT_RUNTIME_PROVIDER = "claude";
 
 function slugify(name: string): string {
@@ -63,17 +63,15 @@ function slugify(name: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-/** The bootstrap model for an agent: portable default first, then env, then a constant. */
+/** The bootstrap model for an agent: opaque portable default, then env, then runtime default. */
 export function bootstrapModel(
   portableModel: string | undefined,
   env: Record<string, string | undefined> = process.env,
-): string {
+): string | undefined {
   if (portableModel) {
-    // Portable defaults are `provider/model` — Multica takes the bare model name.
-    const slash = portableModel.indexOf("/");
-    return slash === -1 ? portableModel : portableModel.slice(slash + 1);
+    return portableModel;
   }
-  return env["MULTICA_DEFAULT_MODEL"] ?? DEFAULT_MODEL_FALLBACK;
+  return env["MULTICA_DEFAULT_MODEL"];
 }
 
 export class MulticaAdapter implements SyncAdapter {
@@ -344,16 +342,39 @@ class MulticaSyncSession {
 
   // ---- Agents ----
 
-  private async pickBootstrapRuntime(): Promise<Record<string, unknown> | null> {
+  private runtimeFamily(profileName: string | undefined): string | undefined {
+    if (!profileName) return undefined;
+    const profile = this.ir.runtimes?.[profileName];
+    const protocol = runtimeProtocol(profile);
+    if (protocol === "claude-code/v1") return "claude";
+    if (protocol === "codex-app-server/v1") return "codex";
+    return protocol ? protocol.replace(/\/v\d+$/, "") : undefined;
+  }
+
+  private async pickBootstrapRuntime(
+    profileName?: string,
+  ): Promise<Record<string, unknown> | null> {
     const raw = await this.mcRead(["runtime", "list", "--output", "json"]);
     const runtimes = Array.isArray(raw)
       ? (raw as Array<Record<string, unknown>>)
       : asArray((raw as Record<string, unknown>)?.["runtimes"]);
     const online = runtimes.filter((r) => r["status"] === "online");
+    const requestedProvider = this.runtimeFamily(profileName);
+    const boundRuntimeID = profileName
+      ? this.env[`MULTICA_RUNTIME_${profileName.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_ID`]
+      : undefined;
+    if (boundRuntimeID) {
+      const bound = online.find((runtime) => str(runtime, "id") === boundRuntimeID);
+      if (!bound) return null;
+      if (requestedProvider && str(bound, "provider") !== requestedProvider) return null;
+      return bound;
+    }
     const preferredProvider =
-      this.env["MULTICA_DEFAULT_RUNTIME_PROVIDER"] ?? DEFAULT_RUNTIME_PROVIDER;
+      requestedProvider ??
+      this.env["MULTICA_DEFAULT_RUNTIME_PROVIDER"] ??
+      DEFAULT_RUNTIME_PROVIDER;
     const preferred = online.filter((r) => r["provider"] === preferredProvider);
-    return preferred[0] ?? online[0] ?? null;
+    return preferred[0] ?? (requestedProvider ? null : online[0] ?? null);
   }
 
   private async pushAgents(): Promise<void> {
@@ -377,7 +398,11 @@ class MulticaSyncSession {
 
       // Ownership (D42): git-owned fields always sync; owned fields only at bootstrap.
       const { updateFields } = planOwnedFields(
-        { model: bootstrapModel(agent.model, this.env) },
+        {
+          model: bootstrapModel(agent.model, this.env),
+          runtime: agent.runtime,
+          "thinking-level": agent.thinkingLevel,
+        },
         owns,
       );
 
@@ -395,10 +420,27 @@ class MulticaSyncSession {
           args.push("--model", updateFields.model);
           summary += " + model";
         }
-        summary += isOwned("model", owns) ? "; model/runtime untouched — Multica owns them)" : ")";
+        if (updateFields["thinking-level"]) {
+          args.push("--thinking-level", updateFields["thinking-level"]);
+          summary += " + thinking-level";
+        }
+        if (updateFields.runtime) {
+          const runtime = await this.pickBootstrapRuntime(updateFields.runtime);
+          if (runtime) {
+            args.push("--runtime-id", str(runtime, "id"));
+            summary += ` + runtime '${str(runtime, "name")}'`;
+          } else {
+            this.warn(
+              `agent '${display}' requests runtime profile '${updateFields.runtime}' but no matching ONLINE runtime exists — placement unchanged.`,
+            );
+          }
+        }
+        summary += isOwned("model", owns) || isOwned("runtime", owns)
+          ? "; target-owned operational fields untouched)"
+          : ")";
         await this.mcWrite(args, summary, "update");
       } else {
-        const runtime = await this.pickBootstrapRuntime();
+        const runtime = await this.pickBootstrapRuntime(agent.runtime);
         if (this.remoteAvailable && !runtime) {
           this.warn(
             `agent '${display}' not on Multica and no ONLINE runtime to host it — skipping. Bring a runtime online (or create the agent on Multica), then re-push.`,
@@ -408,17 +450,21 @@ class MulticaSyncSession {
         const model = bootstrapModel(agent.model, this.env);
         const runtimeId = runtime ? str(runtime, "id") : "<runtime>";
         const runtimeName = runtime ? str(runtime, "name") : "(unknown — dry run)";
-        const created = await this.mcWrite(
-          [
+        const createArgs = [
             "agent", "create",
             "--name", display,
             "--runtime-id", runtimeId,
-            "--model", model,
             "--description", description,
             "--instructions", agent.instructions,
             "--output", "json",
-          ],
-          `create agent ${display} on runtime '${runtimeName}' (bootstrap model ${model}; owned fields are Multica's after this)`,
+          ];
+        if (model) createArgs.push("--model", model);
+        if (agent.thinkingLevel) {
+          createArgs.push("--thinking-level", agent.thinkingLevel);
+        }
+        const created = await this.mcWrite(
+          createArgs,
+          `create agent ${display} on runtime '${runtimeName}' (${model ? `bootstrap model ${model}` : "runtime default model"}; owned fields are Multica's after this)`,
           "create",
         );
         agentId = created ? str(created, "id") : null;

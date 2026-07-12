@@ -1,7 +1,8 @@
 ---
 name: pm
 description: "Project manager who orchestrates a squad, keeps work moving from member to member, and always communicates in plain, non-technical, didactic language."
-model: anthropic/claude-sonnet-5
+runtime: claude
+model: claude-sonnet-5
 skills: []
 multica:
   display_name: "PM"

@@ -1,7 +1,8 @@
 ---
 name: spec-editor
 description: "Edits the spec, decision record, and JSON Schemas as one coherent artifact set, guarding vendor neutrality and progressive disclosure."
-model: anthropic/claude-opus-4-8
+runtime: claude
+model: claude-opus-4-8
 skills: ["decision-record", "spec-consistency"]
 ---
 

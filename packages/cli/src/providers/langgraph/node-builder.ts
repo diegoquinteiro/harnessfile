@@ -1,8 +1,14 @@
-import { AIMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { interrupt } from "@langchain/langgraph";
 import type { Harnessfile, StepDef, AgentDef, SquadDef } from "../../ir/types.js";
 import type { HarnessEvent } from "../interface.js";
-import { createChatModel } from "./model-factory.js";
+import type {
+  RuntimeExecutor,
+  RuntimeResumePointer,
+  RuntimeEvent,
+  RuntimeTaskResult,
+} from "../../agent-runtimes/interface.js";
+import { RuntimeDispatcher } from "../../agent-runtimes/dispatcher.js";
 
 // Builds LangGraph node functions from harness step definitions.
 // Each node function takes state, performs its action, and returns partial state updates.
@@ -13,6 +19,7 @@ type StateType = {
   _stepOutputs: Record<string, unknown>;
   _evalIterations: Record<string, number>;
   _triggerData: Record<string, unknown>;
+  _runtimeSessions: Record<string, RuntimeResumePointer>;
 };
 type NodeFn = (state: StateType, config?: any) => Promise<Partial<StateType>>;
 
@@ -24,9 +31,25 @@ export type EventEmitter = (
 
 const SQUAD_MAX_ITERATIONS = 25;
 
+async function executeAgent(
+  runtime: RuntimeExecutor,
+  sessions: Record<string, RuntimeResumePointer>,
+  agentName: string,
+  prompt: string,
+  onEvent?: (event: RuntimeEvent) => void,
+): Promise<RuntimeTaskResult> {
+  const result = await runtime.execute(agentName, prompt, {
+    resume: sessions[agentName],
+    onEvent,
+  });
+  if (result.resume) sessions[agentName] = result.resume;
+  return result;
+}
+
 export function buildNodeFunctions(
   ir: Harnessfile,
   emit: EventEmitter = () => {},
+  runtime: RuntimeExecutor = new RuntimeDispatcher(ir),
 ): Map<string, NodeFn> {
   const nodes = new Map<string, NodeFn>();
 
@@ -44,17 +67,17 @@ export function buildNodeFunctions(
         nodes.set(stepName, buildGateNode(stepName, step));
         break;
       case "router":
-        nodes.set(stepName, buildRouterNode(stepName, step, ir.agents));
+        nodes.set(stepName, buildRouterNode(stepName, step, ir.agents, emit, runtime));
         break;
       case "squad":
-        nodes.set(stepName, buildSquadNode(stepName, step, ir, emit));
+        nodes.set(stepName, buildSquadNode(stepName, step, ir, emit, runtime));
         break;
       case "orchestrator":
-        nodes.set(stepName, buildOrchestratorNode(stepName, step, ir.agents));
+        nodes.set(stepName, buildOrchestratorNode(stepName, step, ir.agents, emit, runtime));
         break;
       case "agent":
       default:
-        nodes.set(stepName, buildAgentNode(stepName, step, ir.agents));
+        nodes.set(stepName, buildAgentNode(stepName, step, ir.agents, emit, runtime));
         break;
     }
   }
@@ -62,21 +85,12 @@ export function buildNodeFunctions(
   return nodes;
 }
 
-function requireModel(agent: AgentDef, agentName: string): string {
-  if (!agent.model) {
-    throw new Error(
-      `Agent '${agentName}' has no model. The langgraph runtime requires a portable model default on every agent it executes.`,
-    );
-  }
-  return agent.model;
-}
-
 function threadIdOf(config: any): string | undefined {
   return config?.configurable?.thread_id;
 }
 
 function buildTriggerNode(stepName: string): NodeFn {
-  return async (state) => {
+  return async (_state) => {
     // Trigger node passes through — trigger data is already in state from createRun
     return { _currentStep: stepName };
   };
@@ -131,28 +145,35 @@ function buildRouterNode(
   stepName: string,
   step: StepDef,
   agents: Record<string, AgentDef>,
+  emit: EventEmitter,
+  runtime: RuntimeExecutor,
 ): NodeFn {
   const agentDef = step.agent ? agents[step.agent] : undefined;
   if (!agentDef) {
     throw new Error(`Router step '${stepName}' must reference an agent`);
   }
 
-  const model = createChatModel(requireModel(agentDef, step.agent!));
   const routes = step.routes ?? {};
   const routeNames = Object.keys(routes);
 
-  return async (state) => {
-    const systemPrompt = [
-      agentDef.instructions,
-      "",
+  return async (state, config) => {
+    const runtimeSessions = { ...state._runtimeSessions };
+    const threadId = threadIdOf(config);
+    const prompt = [
       `Classify the input into exactly one of these categories: ${routeNames.join(", ")}`,
       `Respond with ONLY the category name, nothing else.`,
+      "",
+      renderMessages(state.messages),
     ].join("\n");
 
-    const response = await model.invoke([
-      new SystemMessage(systemPrompt),
-      ...state.messages,
-    ]);
+    const result = await executeAgent(
+      runtime,
+      runtimeSessions,
+      step.agent!,
+      prompt,
+      (event) => emitRuntimeEvent(emit, threadId, stepName, step.agent!, event),
+    );
+    const response = new AIMessage(result.output);
 
     const classification = (
       typeof response.content === "string"
@@ -164,6 +185,7 @@ function buildRouterNode(
       messages: [response],
       _currentStep: stepName,
       _stepOutputs: { [`${stepName}_route`]: classification },
+      _runtimeSessions: runtimeSessions,
     };
   };
 }
@@ -226,6 +248,7 @@ function buildSquadNode(
   step: StepDef,
   ir: Harnessfile,
   emit: EventEmitter,
+  runtime: RuntimeExecutor,
 ): NodeFn {
   const squad: SquadDef | undefined = step.squad
     ? ir.squads?.[step.squad]
@@ -240,11 +263,9 @@ function buildSquadNode(
       `Squad '${step.squad}' leader '${squad.leader}' is not a defined agent`,
     );
   }
-  const leaderModel = createChatModel(requireModel(leaderAgent, squad.leader));
-
   const memberModels = new Map<
     string,
-    { agent: AgentDef; model: ReturnType<typeof createChatModel>; role?: string }
+    { agent: AgentDef; role?: string }
   >();
   for (const member of squad.members) {
     const agent = ir.agents[member.agent];
@@ -255,7 +276,6 @@ function buildSquadNode(
     }
     memberModels.set(member.agent, {
       agent,
-      model: createChatModel(requireModel(agent, member.agent)),
       role: member.role,
     });
   }
@@ -269,9 +289,7 @@ function buildSquadNode(
     })
     .join("\n");
 
-  const leaderSystem = [
-    leaderAgent.instructions,
-    "",
+  const leaderProtocol = [
     "# Squad orchestration instructions",
     squad.instructions,
     "",
@@ -291,16 +309,18 @@ function buildSquadNode(
     const newMessages: any[] = [];
     const dispatches: Array<{ member: string; instruction: string }> = [];
     let summary: string | undefined;
+    const runtimeSessions = { ...state._runtimeSessions };
 
     for (let i = 0; i < SQUAD_MAX_ITERATIONS; i++) {
-      const leaderResponse = await leaderModel.invoke([
-        new SystemMessage(leaderSystem),
-        ...transcript,
-      ]);
-      const content =
-        typeof leaderResponse.content === "string"
-          ? leaderResponse.content
-          : JSON.stringify(leaderResponse.content);
+      const leaderResult = await executeAgent(
+        runtime,
+        runtimeSessions,
+        squad.leader,
+        [leaderProtocol, "", "# Conversation", renderMessages(transcript)].join("\n"),
+        (event) => emitRuntimeEvent(emit, threadId, stepName, squad.leader, event),
+      );
+      const content = leaderResult.output;
+      const leaderResponse = new AIMessage(content);
 
       const decision = parseLeaderDecision(content);
 
@@ -353,24 +373,31 @@ function buildSquadNode(
         data: { member: decision.member, instruction: decision.instruction },
       });
 
-      const memberSystem = [
-        member.agent.instructions,
-        "",
+      const memberPrompt = [
         `# Your role in squad '${squad.name ?? step.squad}'`,
         member.role ?? "Squad member.",
+        "",
+        "# Conversation",
+        renderMessages(transcript),
+        "",
+        `# Task from ${squad.leader}`,
+        decision.instruction ?? "",
       ].join("\n");
 
-      const memberResponse = await member.model.invoke([
-        new SystemMessage(memberSystem),
-        ...transcript,
-        new HumanMessage(
-          `[${squad.leader} → ${decision.member}] ${decision.instruction ?? ""}`,
+      const memberResult = await executeAgent(
+        runtime,
+        runtimeSessions,
+        decision.member!,
+        memberPrompt,
+        (event) => emitRuntimeEvent(
+          emit,
+          threadId,
+          `${stepName}:${decision.member}`,
+          decision.member!,
+          event,
         ),
-      ]);
-      const memberContent =
-        typeof memberResponse.content === "string"
-          ? memberResponse.content
-          : JSON.stringify(memberResponse.content);
+      );
+      const memberContent = memberResult.output;
 
       const memberMessage = new AIMessage(
         `[${decision.member}] ${memberContent}`,
@@ -403,6 +430,7 @@ function buildSquadNode(
         [stepName]: summary,
         [`${stepName}_dispatches`]: dispatches,
       },
+      _runtimeSessions: runtimeSessions,
     };
   };
 }
@@ -411,13 +439,14 @@ function buildOrchestratorNode(
   stepName: string,
   step: StepDef,
   agents: Record<string, AgentDef>,
+  emit: EventEmitter,
+  runtime: RuntimeExecutor,
 ): NodeFn {
   const agentDef = step.agent ? agents[step.agent] : undefined;
   if (!agentDef) {
     throw new Error(`Orchestrator step '${stepName}' must reference an agent`);
   }
 
-  const model = createChatModel(requireModel(agentDef, step.agent!));
   const poolNames = step.pool ?? [];
 
   // Build descriptions of pool agents for the orchestrator prompt
@@ -428,10 +457,10 @@ function buildOrchestratorNode(
     })
     .join("\n");
 
-  return async (state) => {
-    const systemPrompt = [
-      agentDef.instructions,
-      "",
+  return async (state, config) => {
+    const runtimeSessions = { ...state._runtimeSessions };
+    const threadId = threadIdOf(config);
+    const prompt = [
       "You have the following sub-agents available:",
       poolDescriptions,
       "",
@@ -439,14 +468,20 @@ function buildOrchestratorNode(
       `Timeout: ${step.timeout ?? "none"}.`,
       "",
       "Synthesize all findings into a comprehensive result.",
+      "",
+      renderMessages(state.messages),
     ].join("\n");
 
     // Orchestrator runs as a single agent call that considers pool agents.
     // Superseded by squads in v0.2 — kept for backward parsing compatibility.
-    const response = await model.invoke([
-      new SystemMessage(systemPrompt),
-      ...state.messages,
-    ]);
+    const result = await executeAgent(
+      runtime,
+      runtimeSessions,
+      step.agent!,
+      prompt,
+      (event) => emitRuntimeEvent(emit, threadId, stepName, step.agent!, event),
+    );
+    const response = new AIMessage(result.output);
 
     return {
       messages: [response],
@@ -454,6 +489,7 @@ function buildOrchestratorNode(
       _stepOutputs: {
         [stepName]: typeof response.content === "string" ? response.content : "",
       },
+      _runtimeSessions: runtimeSessions,
     };
   };
 }
@@ -462,15 +498,17 @@ function buildAgentNode(
   stepName: string,
   step: StepDef,
   agents: Record<string, AgentDef>,
+  emit: EventEmitter,
+  runtime: RuntimeExecutor,
 ): NodeFn {
   const agentDef = step.agent ? agents[step.agent] : undefined;
   if (!agentDef) {
     throw new Error(`Step '${stepName}' must reference an agent`);
   }
 
-  const model = createChatModel(requireModel(agentDef, step.agent!));
-
-  return async (state) => {
+  return async (state, config) => {
+    const runtimeSessions = { ...state._runtimeSessions };
+    const threadId = threadIdOf(config);
     // Build context: use step.context to select from previous outputs, or full output
     let contextMessages = state.messages;
     if (step.context) {
@@ -492,10 +530,14 @@ function buildAgentNode(
       }
     }
 
-    const response = await model.invoke([
-      new SystemMessage(agentDef.instructions),
-      ...contextMessages,
-    ]);
+    const result = await executeAgent(
+      runtime,
+      runtimeSessions,
+      step.agent!,
+      renderMessages(contextMessages),
+      (event) => emitRuntimeEvent(emit, threadId, stepName, step.agent!, event),
+    );
+    const response = new AIMessage(result.output);
 
     return {
       messages: [response],
@@ -503,6 +545,32 @@ function buildAgentNode(
       _stepOutputs: {
         [stepName]: typeof response.content === "string" ? response.content : "",
       },
+      _runtimeSessions: runtimeSessions,
     };
   };
+}
+
+function emitRuntimeEvent(
+  emit: EventEmitter,
+  threadId: string | undefined,
+  step: string,
+  agent: string,
+  event: RuntimeEvent,
+): void {
+  emit(threadId, {
+    type: "runtime",
+    step,
+    data: { agent, event },
+  });
+}
+
+function renderMessages(messages: any[]): string {
+  return messages
+    .map((message) => {
+      const role = message?._getType?.() ?? message?.constructor?.name ?? "message";
+      const raw = message?.content;
+      const content = typeof raw === "string" ? raw : JSON.stringify(raw ?? "");
+      return `[${role}] ${content}`;
+    })
+    .join("\n");
 }

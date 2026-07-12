@@ -16,7 +16,9 @@ describe("normalize — basics", () => {
     const ir = loadAndNormalize("minimal");
     expect(ir.version).toBe("0.2");
     expect(ir.name).toBe("minimal");
-    expect(ir.agents["my-agent"].model).toBe("anthropic/claude-sonnet-4-6");
+    expect(ir.runtimes?.claude.protocol).toBe("claude-code/v1");
+    expect(ir.agents["my-agent"].runtime).toBe("claude");
+    expect(ir.agents["my-agent"].model).toBe("claude-sonnet-4-6");
     expect(ir.agents["my-agent"].instructions).toBe("Do something useful.");
     expect(ir.agents["my-agent"].description).toBe("A minimal agent.");
     expect(ir.steps).toBeUndefined();
@@ -204,6 +206,7 @@ describe("normalize — targets", () => {
     expect(ir.targets!["multica"].owns).toEqual([
       "model",
       "runtime",
+      "thinking-level",
       "concurrency",
       "env",
       "mcp",

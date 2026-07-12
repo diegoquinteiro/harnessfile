@@ -1,6 +1,12 @@
 harnessfile: "0.2"
 name: pipeline
 
+runtimes:
+  claude:
+    protocol: claude-code/v1
+  codex:
+    protocol: codex-app-server/v1
+
 steps:
   start:
     type: trigger

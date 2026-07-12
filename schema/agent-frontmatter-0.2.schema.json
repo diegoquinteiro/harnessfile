@@ -8,10 +8,20 @@
   "properties": {
     "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
     "description": { "type": "string", "minLength": 1 },
+    "runtime": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "Portable runtime profile name. Targets may own placement (D52)."
+    },
     "model": {
       "type": "string",
-      "pattern": "^[a-z0-9-]+/.+$",
-      "description": "Portable default (provider/model). Targets may own this field (D42)."
+      "minLength": 1,
+      "description": "Opaque runtime-specific portable default. Targets may own this field (D52)."
+    },
+    "thinking-level": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Opaque runtime/model-specific reasoning or effort level."
     },
     "tools": { "type": "array", "items": { "type": ["string", "object"] } },
     "skills": {

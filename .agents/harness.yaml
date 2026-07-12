@@ -2,6 +2,12 @@
 harnessfile: "0.2"
 name: harnessfile-maintenance
 
+runtimes:
+  claude:
+    protocol: claude-code/v1
+  codex:
+    protocol: codex-app-server/v1
+
 observability:
   tracing: otel/v1
 
@@ -38,5 +44,5 @@ targets:
     provider: github-agent-hq/v1 # .github/agents/*.md, committed
   multica:
     provider: multica/v1
-    owns: [model, runtime, concurrency, env, mcp]
+    owns: [model, runtime, thinking-level, concurrency, env, mcp]
     # --apply requires MULTICA_WORKSPACE_ID or x-workspace (not bound yet).

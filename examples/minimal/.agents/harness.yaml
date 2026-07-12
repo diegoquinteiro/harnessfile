@@ -2,6 +2,12 @@
 harnessfile: "0.2"
 name: sentry-triage
 
+runtimes:
+  claude:
+    protocol: claude-code/v1
+  codex:
+    protocol: codex-app-server/v1
+
 triggers:
   hourly-sweep:
     schedule: "0 * * * *"

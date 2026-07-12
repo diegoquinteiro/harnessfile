@@ -1,7 +1,8 @@
 ---
 name: reviewer
 description: "The mandatory quality gate: correctness, spec-artifact consistency, and design fidelity — before any work reaches a human."
-model: anthropic/claude-opus-4-8
+runtime: claude
+model: claude-opus-4-8
 skills: ["spec-consistency", "fermata-fidelity"]
 ---
 

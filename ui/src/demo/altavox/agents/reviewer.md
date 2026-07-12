@@ -1,7 +1,8 @@
 ---
 name: reviewer
 description: "Pragmatic final code and mockup-adherence review — the quality gate before human review."
-model: openai/gpt-5.5-codex
+runtime: codex
+model: gpt-5.5-codex
 skills: ["ponytail-review"]
 multica:
   display_name: "Reviewer"

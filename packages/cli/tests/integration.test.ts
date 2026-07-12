@@ -42,7 +42,8 @@ describe("integration — AltaVox flagship harness", () => {
     for (const agent of Object.values(ir.agents)) {
       expect(agent.description).toBeTruthy();
       expect(agent.instructions).toBeTruthy();
-      expect(agent.model).toMatch(/^\w+\//);
+      expect(agent.runtime).toMatch(/^(claude|codex)$/);
+      expect(agent.model).toBeTruthy();
     }
   });
 
@@ -82,6 +83,7 @@ describe("integration — AltaVox flagship harness", () => {
     expect(ir.targets!["multica"].owns).toEqual([
       "model",
       "runtime",
+      "thinking-level",
       "concurrency",
       "env",
       "mcp",

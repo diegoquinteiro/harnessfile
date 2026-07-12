@@ -1,7 +1,8 @@
 ---
 name: planner
 description: "Turns research and context into a concrete, minimal-blast-radius implementation plan, without writing any code."
-model: anthropic/claude-opus-4-8
+runtime: claude
+model: claude-opus-4-8
 skills: ["ponytail"]
 multica:
   display_name: "Planner"

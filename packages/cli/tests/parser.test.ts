@@ -173,7 +173,8 @@ describe("loadHarnessDirectory", () => {
     expect(ir.agents["researcher"].description).toBe(
       "Researches the problem space.",
     );
-    expect(ir.agents["researcher"].model).toBe("anthropic/claude-sonnet-4-6");
+    expect(ir.agents["researcher"].runtime).toBe("claude");
+    expect(ir.agents["researcher"].model).toBe("claude-sonnet-4-6");
   });
 
   it("loads squads from squads/*.md", () => {
@@ -228,7 +229,7 @@ describe("loadHarnessDirectory", () => {
       AGENT_INSTRUCTIONS: "Test instructions",
     });
     expect(ir.name).toBe("variables");
-    expect(ir.agents["my-agent"].model).toBe("anthropic/claude-sonnet-4-6");
+    expect(ir.agents["my-agent"].model).toBe("claude-sonnet-4-6");
     expect(ir.agents["my-agent"].description).toBe(
       "A variable-driven agent.",
     );
@@ -260,6 +261,7 @@ describe("loadHarnessDirectory", () => {
     expect(ir.targets!["multica"].owns).toEqual([
       "model",
       "runtime",
+      "thinking-level",
       "concurrency",
       "env",
       "mcp",

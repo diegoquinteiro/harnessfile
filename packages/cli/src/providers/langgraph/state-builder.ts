@@ -1,5 +1,6 @@
 import { Annotation, MessagesAnnotation } from "@langchain/langgraph";
 import type { Harnessfile } from "../../ir/types.js";
+import type { RuntimeResumePointer } from "../../agent-runtimes/interface.js";
 
 // Builds the LangGraph state annotation from the harnessfile IR.
 // Extends MessagesAnnotation (which includes the messages array with concat reducer)
@@ -45,6 +46,12 @@ export function buildStateAnnotation(ir: Harnessfile) {
     // Trigger input data
     _triggerData: Annotation<Record<string, unknown>>({
       reducer: (_prev, next) => next,
+      default: () => ({}),
+    }),
+
+    // Native coding-agent sessions, guarded by runtime instance and workspace.
+    _runtimeSessions: Annotation<Record<string, RuntimeResumePointer>>({
+      reducer: (prev, next) => ({ ...prev, ...next }),
       default: () => ({}),
     }),
   });

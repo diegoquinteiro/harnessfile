@@ -1,6 +1,12 @@
 harnessfile: "0.2"
 name: test-pipeline
 
+runtimes:
+  claude:
+    protocol: claude-code/v1
+  codex:
+    protocol: codex-app-server/v1
+
 observability:
   tracing: langfuse/v1
   sampling: 0.5

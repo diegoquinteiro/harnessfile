@@ -1,7 +1,8 @@
 ---
 name: risk-assessor
 description: "Scores an issue's delivery risk and ambiguity with the risk-assessment skill, anchored to evidence."
-model: anthropic/claude-opus-4-8
+runtime: claude
+model: claude-opus-4-8
 skills: ["risk-assessment"]
 multica:
   display_name: "Risk Assessor"

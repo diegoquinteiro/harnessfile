@@ -2,7 +2,7 @@
 
 name = "ui-engineer"
 description = "Builds and maintains the visual editor (ui/) — a faithful Fermata design-system artifact with faithful multi-file round-trip."
-model = "anthropic/claude-sonnet-5"
+model = "claude-sonnet-5"
 developer_instructions = """
 # Role
 You are the UI Engineer. You own ui/ — the visual editor for the `.agents/` directory. It must

@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { resolve } from "node:path";
-import { AIMessage } from "@langchain/core/messages";
 import { loadHarnessDirectory } from "../src/parser/directory.js";
 import { LangGraphProvider } from "../src/providers/langgraph/index.js";
 import type { Harnessfile } from "../src/ir/types.js";
@@ -11,29 +10,20 @@ function loadIR(fixture: string): Harnessfile {
   return loadHarnessDirectory(resolve(FIXTURES, fixture)).ir;
 }
 
-// Mock model.invoke to return fake LLM responses
-vi.mock("../src/providers/langgraph/model-factory.js", () => {
+// Mock coding-agent runtime dispatch without launching real CLIs.
+vi.mock("../src/agent-runtimes/dispatcher.js", () => {
   let callCount = 0;
   return {
-    createChatModel: (_modelSpec: string) => ({
-      invoke: vi.fn(async (messages: any[]) => {
+    RuntimeDispatcher: class {
+      execute = vi.fn(async (_agentName: string, prompt: string, options?: any) => {
         callCount++;
-        // Look at the system message to determine what kind of response to give
-        const systemMsg = messages.find(
-          (m: any) => m._getType?.() === "system" || m.constructor?.name === "SystemMessage",
-        );
-        const content = systemMsg?.content ?? "";
-
-        // Router: respond with a classification
-        if (typeof content === "string" && content.includes("Classify the input")) {
-          return new AIMessage("feature");
+        options?.onEvent?.({ type: "text", content: `runtime event #${callCount}` });
+        if (prompt.includes("Classify the input")) {
+          return { output: "feature" };
         }
-
-        // Default: return a generic response
-        return new AIMessage(`Response #${callCount} from mock LLM`);
-      }),
-      constructor: { name: "MockChatModel" },
-    }),
+        return { output: `Response #${callCount} from mock runtime` };
+      });
+    },
   };
 });
 
@@ -67,6 +57,10 @@ describe("execution — pipeline", () => {
     const types = events.map((e) => e.type);
     expect(types).toContain("run-start");
     expect(types).toContain("run-end");
+    expect(types).toContain("runtime");
+    expect(events.find((event) => event.type === "runtime")?.data).toMatchObject({
+      event: { type: "text" },
+    });
   });
 
   it("tracks the run in listRuns", async () => {

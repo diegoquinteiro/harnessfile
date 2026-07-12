@@ -158,9 +158,12 @@ Source: Meta-review worktree conversation
 
 Source: Implementation worktree
 
-### D34: Harness provider concept
+### D34: Harness provider concept [amended by D52, D53]
 **Decision:** A "harness provider" is a runtime execution engine that takes the parsed harnessfile IR and runs it. This is distinct from the spec's runtime providers (slack/v1, jira/v1, etc.) which describe integrations at execution time. First harness provider: LangGraph.
 **Rationale:** Decouples the spec (what the harness is) from the runtime (how it executes). Different teams can use different providers for the same harnessfile.
+**Amended:** D52 separates the harness engine from coding-agent runtimes and reserves "runtime provider" for coding-agent CLI protocols; Slack/Jira-style providers are integrations.
+**Amended:** D53 names the coding-agent wire surface a `protocol` rather than another provider;
+`provider` remains the extension/integration and harness-engine concept.
 
 ### D35: CLI follows Docker Compose model
 **Decision:** The CLI uses `up/down/logs/status` commands, not plan/apply. YAML is interpreted at runtime, not compiled to static code. `harnessfile up` starts a persistent server.
@@ -170,9 +173,10 @@ Source: Implementation worktree
 **Decision:** Single process execution. The provider interface is designed for future distribution (remote workers, task queues) but that layer is not built yet.
 **Rationale:** Ship fast, iterate. The interfaces are clean enough to add distribution in v0.2 without rewriting.
 
-### D37: LangGraph as runtime engine
+### D37: LangGraph as runtime engine [amended by D52]
 **Decision:** The LangGraph provider wraps LangGraph's StateGraph as the execution engine, leveraging its checkpointing, streaming, and Pregel engine.
 **Rationale:** LangGraph provides state management, checkpointing, and human-in-the-loop (interrupt/resume) out of the box. Building our own engine would duplicate this work.
+**Amended:** Under D52 LangGraph may remain temporarily as the graph/checkpoint engine, but it MUST NOT instantiate or execute chat models. Agent execution is delegated to coding-agent runtime providers.
 
 ### D38: Persistent server with concurrent runs
 **Decision:** `harnessfile up` starts a long-running server. Triggers listen for events and spawn runs. Multiple runs flow concurrently through the same compiled graph, isolated by thread ID. Gates suspend individual runs via LangGraph's checkpointing, not the whole process.
@@ -207,9 +211,10 @@ Source: Main conversation. Context: the project was stale since 2026-04-11. Deep
 **Decision:** No separate autopilot entity in the spec. A trigger node may declare `schedule` (cron) + `timezone` and a `prompt` (inline or a path to a Markdown file). AltaVox/Multica-style `autopilots/*.md` compile to scheduled triggers on sync.
 **Rationale:** One concept instead of two overlapping ones; keeps the unified graph (D31).
 
-### D42: Ownership boundary — portable defaults + target-owned fields
+### D42: Ownership boundary — portable defaults + target-owned fields [amended by D52]
 **Decision:** Entity files MAY declare portable defaults (e.g., `model`) useful for local tools and the headless runtime. In `harness.yaml`, each sync target declares which fields it **owns** (e.g., `owns: [model, runtime, concurrency, env]`). Owned fields are set once at bootstrap (first push, using the portable default if present) and **never overwritten by subsequent syncs** (bootstrap-then-hands-off). Secrets are never in the repo (reaffirms D27).
 **Rationale:** Formalizes the boundary proven by AltaVox's `multica-push.py`: git owns definition, the environment owns operational config.
+**Amended:** D52 makes `runtime`, opaque `model`, and `thinking-level` explicit portable agent defaults. A target may own and override all three; concrete runtime instance IDs remain target-side only.
 
 ### D43: Naming after the pivot
 **Decision:** The project, CLI, spec, and packages remain **Harnessfile** (D24's name stands — npm/PyPI secured). The canonical file is `.agents/harness.yaml` (extension kept for editor/tooling support). Precedent: Terraform's config files are not named `terraform`.
@@ -217,12 +222,14 @@ Source: Main conversation. Context: the project was stale since 2026-04-11. Deep
 ### D44: Ecosystem posture — own spec, compatible and ambitious
 **Decision:** Publish the Harnessfile spec of the `.agents/` directory as a candidate standard. Adopt **SKILL.md** (Agent Skills) and **AGENTS.md** as-is; specify `agents/*.md` using the Markdown+frontmatter plurality convention (Claude Code / Cursor / Gemini CLI compatible); add `harness.yaml` and `squads/` where no standard exists. Engage the community ".agents Protocol" draft author; aim for AAIF/Linux Foundation alignment later — without waiting for anyone.
 
-### D45: CLI dual mode — sync + headless runtime
+### D45: CLI dual mode — sync + headless runtime [amended by D52]
 **Decision:** Two modes: (1) **`harnessfile sync`** compiles/pushes the definition to targets (Multica, `.claude/` symlinks, Codex TOML, `.github/agents/`, …) honoring D42 ownership; (2) **`harnessfile up`** runs the headless orchestrator that binds triggers/gates to systems already in production (Jira/Linear/GitHub/Slack via providers) and drives agent runtimes. Extends D35; the LangGraph engine (D37) powers `up`.
 **Rationale:** Sync delivers value immediately and generalizes proven AltaVox tooling; `up` is the "Multica without UI lock-in" differentiator.
+**Amended:** D52 defines "drives agent runtimes" as dispatching tasks to coding-agent CLIs through runtime drivers, never calling model APIs through chat wrappers.
 
-### D46: v0.2 integration targets
+### D46: v0.2 integration targets [amended by D52]
 **Decision:** First wave, all four: (1) **Multica** sync provider; (2) **local code tools** — Claude Code (`.claude/` symlinks), Cursor/Gemini (native `.agents/`), Codex (TOML subagent generation); (3) **GitHub Agent HQ** (`.github/agents/*.md`); (4) **production boards/chat** — Jira, Linear, GitHub, Slack trigger/gate providers for the headless runtime.
+**Amended:** D52 promotes Claude Code and Codex from sync-only targets to the first local coding-agent runtime providers as well.
 
 ### D47: First implementation milestone — AltaVox as the flagship case
 **Decision:** Express the AltaVox harness in `.agents/harness.yaml` and make `harnessfile sync` generate/maintain its targets, generalizing the production-proven `multica-push.py`/pull scripts into the official Multica provider. Validates the spec against a real harness before anything else.
@@ -253,6 +260,57 @@ numbered D39; renumbered to D51 to resolve a collision with the Session 5 pivot 
 ### D51: AGENTS.md is the canonical project guidance
 **Decision:** Keep all shared project guidance in `AGENTS.md`. `CLAUDE.md` must contain only `@AGENTS.md`, using Claude Code's import syntax, so every supported coding agent reads the same instructions from a single source of truth.
 **Note:** Complements D44 (the spec adopts AGENTS.md as-is) — this is about the project's own guidance files. `AGENTS.md` content was updated to the v0.2 reality (`.agents/` directory, `spec/v0.2-draft.md`) as part of the same integration.
+
+---
+
+## Session 7 — Coding-agent runtimes (2026-07-12)
+
+Source: Main conversation. The user rejected direct `ChatOpenAI` / `ChatAnthropic` execution and
+asked Harnessfile to follow Multica's coding-agent runtime model.
+
+### D52: Execute agents through coding-agent runtimes [amended by D53]
+**Decision:** The harness engine MUST NOT instantiate model API chat clients. It dispatches agent
+tasks to coding-agent runtime providers such as Claude Code and Codex. Harnessfile is local-first:
+`harnessfile up` can execute installed CLIs without Multica, while targets such as Multica may
+resolve the same portable configuration to managed runtime instances. Agents MAY declare a
+portable runtime profile, an opaque runtime-specific `model`, and `thinking-level`; targets may
+own and override those fields. Concrete runtime instance IDs and secrets are never committed.
+LangGraph may remain temporarily for graph coordination and checkpointing only.
+**Rationale:** Coding-agent CLIs provide the operational agent surface—terminal, file edits,
+sandboxing, MCP, skills, sessions, and structured events—that a chat-model wrapper cannot.
+Separating the graph engine from runtime execution keeps the specification vendor-neutral and
+matches the production-proven Multica daemon/runtime architecture.
+**User quote:** "A gente quer usar o CLI do codex e do claude que são nossos coding agents."
+**Impact:** Amends D34, D37, D42, D45, and D46. The reference implementation gains runtime
+profiles, Claude Code and Codex drivers, and a dispatcher; direct Anthropic/OpenAI LangChain model
+adapters are removed.
+**Amended:** D53 separates the runtime protocol family, portable profile, and concrete instance,
+and replaces one-shot subprocess adapters with streaming, resumable runtime sessions.
+
+---
+
+## Session 8 — Runtime protocol architecture (2026-07-12)
+
+Source: Main conversation, after reviewing Multica's open-source daemon and coding-agent backends.
+
+### D53: Separate runtime protocols, profiles, and instances
+**Decision:** Coding-agent execution has three distinct layers: a **protocol family** defines the
+wire contract with a coding-agent CLI; a portable **runtime profile** names that protocol and MAY
+declare a command name and fixed non-secret arguments; a target-resolved **runtime instance** is a
+concrete executable environment with identity, availability, and discovered capabilities. Agents
+reference profiles, while execution and managed targets place tasks onto compatible instances.
+Runtime drivers MUST expose structured streaming events, a final result, session identity, and
+cancellation; session resumption MUST remain on the same compatible runtime instance and workspace.
+The runtime profile field is named `protocol`, not `provider`.
+**Rationale:** This matches the mature separation used by Multica while keeping Harnessfile
+vendor-neutral. It prevents model providers, sync providers, coding-agent transports, and concrete
+machines from collapsing into one overloaded `provider` concept. Structured sessions preserve the
+coding agents' native tool activity, state, and operational controls instead of reducing them to a
+single text response.
+**User quote:** "vamos seguir assim"
+**Impact:** Amends D34 and D52. The reference local target discovers executable instances; Claude Code uses
+bidirectional stream-json and Codex uses app-server JSON-RPC with thread resume and fresh-thread
+fallback. Concrete instance IDs remain operational state and never enter committed agent cards.
 
 ---
 

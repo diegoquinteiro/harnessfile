@@ -2,7 +2,7 @@
 
 An open, vendor-neutral specification for AI agent **harnesses** — the operational scaffolding around agents (triggers, gates, squads, routing, evals, hooks, memory, observability, security), not the agent definition itself.
 
-> **Status:** v0.2 draft — a pivot from a single YAML file to the `.agents/` directory. See [`spec/v0.2-draft.md`](./spec/v0.2-draft.md) and decisions D39–D49 in [`decisions.md`](./decisions.md).
+> **Status:** v0.2 draft — a pivot from a single YAML file to the `.agents/` directory. See [`spec/v0.2-draft.md`](./spec/v0.2-draft.md) and decisions D39–D52 in [`decisions.md`](./decisions.md).
 
 ## Why a harness spec?
 
@@ -11,7 +11,7 @@ The industry standardized the layers around the harness: **AGENTS.md** won proje
 Harnessfile fills that gap. Define your harness once, as files in your repo, and:
 
 - **`harnessfile sync`** — compile/push the definition to the environments you use: Multica, Claude Code, Cursor, Codex, Gemini CLI, GitHub Agent HQ — honoring each target's ownership of operational config (model, runtime, secrets).
-- **`harnessfile up`** — run the harness headless, bound to the systems your team already has in production (Jira, Linear, GitHub, Slack) — no new UI to adopt.
+- **`harnessfile up`** — run the harness headless and dispatch agent tasks to local coding-agent CLIs such as Claude Code and Codex, bound to the systems your team already has in production.
 
 Design lineage: Terraform (declarative, provider-pluggable), Docker Compose (simple, progressive complexity).
 
@@ -28,6 +28,10 @@ A harness is the `.agents/` directory. The smallest useful one is two files:
 harnessfile: "0.2"
 name: sentry-triage
 
+runtimes:
+  claude:
+    protocol: claude-code/v1
+
 triggers:
   hourly-sweep:
     schedule: "0 * * * *"
@@ -43,7 +47,8 @@ steps:
 ---
 name: triager
 description: Triages Sentry issues into actionable bug reports.
-model: anthropic/claude-sonnet-4-6
+runtime: claude
+model: claude-sonnet-4-6
 ---
 You triage Sentry issues. Deduplicate by issue id, ignore noise, file genuine bugs to the backlog.
 ```
@@ -53,6 +58,7 @@ You triage Sentry issues. Deduplicate by issue id, ignore noise, file genuine bu
 - **The spec is a directory.** `harness.yaml` + `agents/*.md` + `skills/*/SKILL.md` + `squads/*.md`, versioned and reviewed like code.
 - **Everything is a node in a graph.** Triggers, agents, squads, gates, and outputs are nodes; polymorphic `next` defines edges; fan-in is implicit.
 - **Squads are agent-compatible.** A squad (leader + members + orchestration instructions) can be used anywhere an agent can. Explicit graphs and leader-orchestration coexist.
+- **Coding-agent CLIs are runtimes.** The harness engine owns the graph; Claude Code, Codex, and other runtime protocols supply terminal, files, sandbox, MCP, skills, and sessions through target-resolved instances. Harnessfile never reduces them to chat-model API calls.
 - **Definition is portable; operations belong to the environment.** Targets declare which fields they `own`; sync seeds them at bootstrap and never overwrites them. Secrets are never in the repo.
 - **Providers everywhere.** Every component — trigger, gate, eval, memory, observability, target — is provider-backed with standard interfaces.
 - **Defaults over config, progressive disclosure.**
@@ -69,7 +75,7 @@ You triage Sentry issues. Deduplicate by issue id, ignore noise, file genuine bu
 | [`schema/`](./schema/) | JSON Schemas for `harness.yaml` and entity frontmatter |
 | [`examples/minimal`](./examples/minimal/) | The smallest useful harness (two files) |
 | [`examples/altavox`](./examples/altavox/) | **The flagship example** — a real production harness: 9-agent squad, risk×ambiguity routing, Sentry autopilot, 4 targets |
-| [`packages/cli`](./packages/cli) | The `harnessfile` CLI: `validate`, `sync` (claude-code · codex · github · multica), `up` (LangGraph runtime) |
+| [`packages/cli`](./packages/cli) | The `harnessfile` CLI: `validate`, `sync` (claude-code · codex · github · multica), `up` (LangGraph coordination + Claude/Codex runtime drivers) |
 | [`ui`](./ui) | Visual editor (React) for the `.agents/` directory, built on the Fermata design system |
 
 ## Status
