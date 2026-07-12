@@ -178,9 +178,6 @@ Source: Implementation worktree
 **Decision:** `harnessfile up` starts a long-running server. Triggers listen for events and spawn runs. Multiple runs flow concurrently through the same compiled graph, isolated by thread ID. Gates suspend individual runs via LangGraph's checkpointing, not the whole process.
 **Rationale:** A harness serving production traffic must handle concurrent requests. Each trigger event (webhook POST, cron tick) creates an independent execution with its own state. Gate pauses must not block other runs.
 
-### D39: AGENTS.md is the canonical project guidance
-**Decision:** Keep all shared project guidance in `AGENTS.md`. `CLAUDE.md` must contain only `@AGENTS.md`, using Claude Code's import syntax, so every supported coding agent reads the same instructions from a single source of truth.
-
 ---
 
 ## Session 5 — Industry research and the v0.2 pivot (2026-07-11)
@@ -245,6 +242,17 @@ symlinks, codex TOML, github agents) are synced by the CLI and committed; the mu
 declared but unbound (`--apply` refuses until a workspace is set).
 **Rationale:** The spec's first ongoing user should be itself; every spec change now has to
 survive its own harness.
+
+---
+
+## Session 6 — AGENTS.md canonicalization (2026-07-12)
+
+Source: A parallel commit by the project owner (`e440aa8`), integrated by rebase. Originally
+numbered D39; renumbered to D51 to resolve a collision with the Session 5 pivot decisions.
+
+### D51: AGENTS.md is the canonical project guidance
+**Decision:** Keep all shared project guidance in `AGENTS.md`. `CLAUDE.md` must contain only `@AGENTS.md`, using Claude Code's import syntax, so every supported coding agent reads the same instructions from a single source of truth.
+**Note:** Complements D44 (the spec adopts AGENTS.md as-is) — this is about the project's own guidance files. `AGENTS.md` content was updated to the v0.2 reality (`.agents/` directory, `spec/v0.2-draft.md`) as part of the same integration.
 
 ---
 

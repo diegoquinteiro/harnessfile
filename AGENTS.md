@@ -8,7 +8,7 @@ All project documents, code comments, commit messages, issues, and PRs must be w
 
 This project defines an open, vendor-neutral specification for AI agent harnesses — the operational scaffolding around agents (triggers, guardrails, hooks, memory, evals, observability), NOT the agent definition itself.
 
-Agents can be defined inline for convenience or referenced from external specs via providers. The harness owns the graph and the rules — not the agent internals.
+Since v0.2 the spec is the **`.agents/` directory**: `harness.yaml` (triggers, gates, graph, routing, targets) alongside `agents/<slug>.md` role cards, `skills/<name>/SKILL.md`, and `squads/<slug>.md`. Agents are Markdown + frontmatter files (or referenced from external specs via providers). The harness owns the graph and the rules — not the agent internals. See `spec/v0.2-draft.md`; the project maintains its own harness under `.agents/` (D50).
 
 ## Positioning
 
@@ -23,4 +23,6 @@ All design decisions are tracked in `decisions.md`. When the user makes a new de
 1. Add it to `decisions.md` with the next D-number
 2. If it supersedes a previous decision, redact the old one with `[redacted by Dxx]`
 3. Check for contradictions with existing decisions and ask the user to resolve them
-4. Update `spec/v0.1-draft.md` to reflect the decision
+4. Update `spec/v0.2-draft.md` to reflect the decision
+
+This process is codified as the `decision-record` skill in the project's own harness (`.agents/skills/`).
