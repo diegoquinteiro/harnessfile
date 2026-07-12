@@ -31,8 +31,13 @@ describe("validate — version", () => {
     expect(result.valid).toBe(true);
   });
 
-  it("rejects unsupported version", () => {
+  it("accepts version 0.2", () => {
     const result = validateHarnessfile(makeIR({ version: "0.2" }));
+    expect(result.valid).toBe(true);
+  });
+
+  it("rejects unsupported version", () => {
+    const result = validateHarnessfile(makeIR({ version: "0.3" }));
     expect(result.valid).toBe(false);
     expect(result.errors[0].message).toContain("Unsupported version");
   });

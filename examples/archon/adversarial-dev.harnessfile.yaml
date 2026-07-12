@@ -1,0 +1,137 @@
+harnessfile: '0.2'
+name: archon-adversarial-dev
+description: "Use when: User wants to build a complete application from scratch using adversarial development.\nTriggers: \"adversarial dev\", \"adversarial development\", \"build with adversarial\", \"\
+  gan dev\",\n          \"adversarial build\", \"build app adversarially\", \"adversarial coding\".\nDoes: Three-role GAN-inspired development \u2014 Planner creates spec with sprints, then a state-machine\n\
+  \      loop alternates between Generator (builds code) and Evaluator (attacks it) with hard pass/fail\n      thresholds. The evaluator's job is to BREAK what the generator builds. If any criterion scores\n\
+  \      below 7/10, the sprint goes back to the generator with adversarial feedback. Stops on sprint\n      failure after max retries.\nNOT for: Bug fixes, PR reviews, refactoring existing code, simple\
+  \ one-off tasks.\n\nBased on Anthropic's harness design article for long-running application development.\nSeparates planning, building, and evaluation into distinct roles with adversarial tension.\n"
+provider: claude
+model: sonnet
+steps:
+  plan:
+    prompt: "You are a product planning expert. Your job is to take a short user prompt and expand it\ninto a comprehensive product specification.\n\n## User Request\n\n$ARGUMENTS\n\n## Your Task\n\nWrite\
+      \ a comprehensive product specification to the file `$ARTIFACTS_DIR/spec.md` using the Write tool.\n\nThe spec MUST include ALL of the following sections:\n\n### 1. Product Overview\nWhat the product\
+      \ does, who it's for, core value proposition.\n\n### 2. Tech Stack\nSpecific technologies, frameworks, and libraries. Be opinionated \u2014 pick concrete choices,\nnot \"a modern framework.\" Include\
+      \ exact package names and versions where relevant.\n\n### 3. Design Language\nVisual style, specific color hex codes, typography choices, component patterns, spacing system.\n\n### 4. Feature List\n\
+      Every feature organized by priority. Be exhaustive.\n\n### 5. Sprint Plan\nFeatures broken into 3-6 sprints, ordered by dependency and importance:\n- **Sprint 1** should establish the foundation (project\
+      \ setup, core data models, basic UI shell)\n- Each subsequent sprint builds on the previous\n- Label each sprint clearly: \"Sprint 1: Foundation\", \"Sprint 2: Core Features\", etc.\n- List the specific\
+      \ features/deliverables for each sprint\n\nBe specific and opinionated. The more concrete the spec (exact API paths, specific color codes,\nnamed libraries), the better the generator can build and\
+      \ the evaluator can test.\n\nIMPORTANT: Write the spec to `$ARTIFACTS_DIR/spec.md` using the Write tool. Do NOT just output\nit as conversation text.\n"
+    allowed_tools:
+    - Read
+    - Write
+    - Glob
+    - Grep
+  init-workspace:
+    depends_on:
+    - plan
+    bash: |
+      ARTIFACTS="$ARTIFACTS_DIR"
+
+      # Create directory structure for harness communication
+      mkdir -p "$ARTIFACTS/contracts"
+      mkdir -p "$ARTIFACTS/feedback"
+      mkdir -p "$ARTIFACTS/app"
+
+      # Initialize isolated git repo in app directory
+      cd "$ARTIFACTS/app"
+      git init -q
+      git commit --allow-empty -m "Initial commit: adversarial-dev workspace" -q
+
+      # Extract sprint count from spec (find highest "Sprint N" reference)
+      SPEC="$ARTIFACTS/spec.md"
+      SPRINT_COUNT=3
+      if [ -f "$SPEC" ]; then
+        FOUND=$(grep -ioE 'sprint\s+[0-9]+' "$SPEC" | grep -oE '[0-9]+' | sort -n | tail -1)
+        if [ -n "$FOUND" ] && [ "$FOUND" -ge 1 ] 2>/dev/null; then
+          SPRINT_COUNT=$FOUND
+        fi
+        if [ "$SPRINT_COUNT" -gt 10 ]; then
+          SPRINT_COUNT=10
+        fi
+      fi
+
+      # Write initial state machine file
+      cat > "$ARTIFACTS/state.json" << 'STATEEOF'
+      {
+        "phase": "negotiating",
+        "sprint": 1,
+        "totalSprints": SPRINT_COUNT_PLACEHOLDER,
+        "retry": 0,
+        "maxRetries": 3,
+        "passThreshold": 7,
+        "completedSprints": [],
+        "status": "running"
+      }
+      STATEEOF
+      sed -i "s/SPRINT_COUNT_PLACEHOLDER/$SPRINT_COUNT/" "$ARTIFACTS/state.json"
+
+      echo "{\"totalSprints\": $SPRINT_COUNT, \"appDir\": \"$ARTIFACTS/app\", \"artifactsDir\": \"$ARTIFACTS\"}"
+    timeout: 30000
+  adversarial-sprint:
+    depends_on:
+    - init-workspace
+    idle_timeout: 600000
+    model: claude-opus-4-6[1m]
+    loop:
+      prompt: "# Adversarial Development \u2014 Sprint Loop\n\nYou are part of a GAN-inspired adversarial development system with three distinct roles.\nEach iteration you play ONE role, determined by the\
+        \ current phase in the state file.\n\n## FIRST: Read State\n\nRead `$ARTIFACTS_DIR/state.json` to determine:\n- `phase` \u2014 which role you play this iteration\n- `sprint` \u2014 current sprint\
+        \ number\n- `totalSprints` \u2014 how many sprints total\n- `retry` \u2014 current retry attempt (0 = first try)\n- `maxRetries` \u2014 max retries before hard failure (default 3)\n- `passThreshold`\
+        \ \u2014 minimum score to pass (default 7)\n\nThen read `$ARTIFACTS_DIR/spec.md` for product context.\n\n## Directory Layout\n\n- App source code: `$ARTIFACTS_DIR/app/`\n- Sprint contracts: `$ARTIFACTS_DIR/contracts/sprint-{N}.json`\n\
+        - Evaluation feedback: `$ARTIFACTS_DIR/feedback/sprint-{N}-round-{R}.json`\n- State machine: `$ARTIFACTS_DIR/state.json`\n\n---\n\n## ROLE: CONTRACT NEGOTIATOR (phase = \"negotiating\")\n\nYou negotiate\
+        \ the success criteria for the current sprint. Play BOTH sides sequentially:\n\n**Step 1 \u2014 Generator's Proposal:**\nRead the spec carefully. Identify what Sprint {N} should deliver based on\
+        \ the sprint plan.\nPropose a sprint contract with 5-15 specific, testable criteria.\n\nEach criterion MUST be concrete and verifiable. Examples:\n- GOOD: \"GET /api/tasks returns 200 with JSON\
+        \ array; each item has id (number), title (string), status (string), createdAt (ISO date)\"\n- GOOD: \"Clicking the Add Task button opens a modal with title input, priority dropdown (low/medium/high),\
+        \ and due date picker\"\n- BAD: \"The API works well\"\n- BAD: \"Tasks can be managed\"\n\n**Step 2 \u2014 Evaluator's Tightening:**\nNow review your proposal as an adversary. For EACH criterion\
+        \ ask:\n- Is it specific enough to test programmatically?\n- What edge cases are missing? (empty inputs, special characters, concurrent requests)\n- Is the bar high enough, or would sloppy code\
+        \ pass?\n\nTighten vague criteria. Add edge cases. Raise the bar.\n\n**Write the final contract** to `$ARTIFACTS_DIR/contracts/sprint-{N}.json`:\n```json\n{\n  \"sprintNumber\": <N>,\n  \"features\"\
+        : [\"feature1\", \"feature2\", ...],\n  \"criteria\": [\n    {\n      \"name\": \"short-kebab-name\",\n      \"description\": \"Specific, testable description of what must be true\",\n      \"threshold\"\
+        : 7\n    }\n  ]\n}\n```\n\n**Update state.json**: Set `\"phase\": \"building\"`. Keep all other fields unchanged.\n\n---\n\n## ROLE: GENERATOR (phase = \"building\")\n\nYou are a software engineer.\
+        \ Build features that MUST survive an adversarial evaluator\nwho will actively try to break your code.\n\n**Read these files:**\n1. `$ARTIFACTS_DIR/spec.md` \u2014 full product spec (design language,\
+        \ tech stack, all features)\n2. `$ARTIFACTS_DIR/contracts/sprint-{N}.json` \u2014 the contract you must satisfy\n3. If `retry` > 0: read `$ARTIFACTS_DIR/feedback/sprint-{N}-round-{R-1}.json` for\
+        \ the\n   evaluator's previous feedback\n\n**If this is a RETRY (retry > 0):**\nRead the feedback CAREFULLY. Every failed criterion must be addressed.\n- If scores were close (5-6) and trending\
+        \ up: REFINE your approach\n- If scores were low (1-4) or the approach is fundamentally broken: PIVOT to a new strategy\n- Address EVERY feedback item \u2014 the evaluator WILL check\n- Re-verify\
+        \ each fix by running the code before committing\n\n**Build rules:**\n- All code goes in `$ARTIFACTS_DIR/app/`\n- Build ONE feature at a time, verify it works, then commit:\n  ```bash\n  cd $ARTIFACTS_DIR/app\
+        \ && git add -A && git commit -m \"feat: description of what was built\"\n  ```\n- Install dependencies as needed (npm/bun/pip/etc)\n- Test your code \u2014 start the server, hit the endpoints,\
+        \ verify the UI renders\n- Think about what the evaluator will attack: edge cases, error handling, input validation\n- Build defensively \u2014 the evaluator's job is to break you\n\n**Update state.json**:\
+        \ Set `\"phase\": \"evaluating\"`. Keep all other fields unchanged.\n\n---\n\n## ROLE: EVALUATOR (phase = \"evaluating\")\n\nYou are an ADVERSARIAL QA agent. Your mandate is to BREAK what the generator\
+        \ built.\nYou are not helpful. You are not generous. You are an attacker.\n\n**CRITICAL CONSTRAINTS:**\n- You are READ-ONLY for source code. NEVER use Write or Edit on files in `$ARTIFACTS_DIR/app/`.\n\
+        - You MAY use Bash to run the app, curl endpoints, run test scripts, check behavior.\n- You MUST kill any background processes (servers, watchers) you start BEFORE finishing.\n  Use: `pkill -f \"\
+        node\\|bun\\|python\\|npm\" 2>/dev/null || true`\n- You MUST score EVERY criterion in the contract. No skipping.\n\n**Scoring guidelines:**\n- **9-10**: Exceptional. Works perfectly including edge\
+        \ cases the contract didn't mention.\n- **7-8**: Solid. Meets the criterion as stated. Minor polish issues at most.\n- **5-6**: Partial. Core functionality exists but fails important edge cases\
+        \ or has bugs.\n- **3-4**: Weak. Barely functional. Major gaps.\n- **1-2**: Broken. Does not work or is not implemented.\n\nDo NOT grade on a curve. Do NOT give benefit of the doubt. A 7 means \"\
+        genuinely meets the bar.\"\nIf something is broken, say it's broken.\n\n**Read**: `$ARTIFACTS_DIR/contracts/sprint-{N}.json` for the criteria.\n\n**For each criterion:**\n1. Read the relevant source\
+        \ code\n2. Run the application (start server, test endpoints, check rendered UI)\n3. Try to BREAK it \u2014 invalid inputs, missing fields, edge cases, error handling gaps\n4. Score it honestly\n\
+        \n**Write evaluation** to `$ARTIFACTS_DIR/feedback/sprint-{N}-round-{R}.json`:\n```json\n{\n  \"passed\": <true if ALL scores >= passThreshold, false otherwise>,\n  \"scores\": {\n    \"criterion-name\"\
+        : <score>,\n    ...\n  },\n  \"feedback\": [\n    {\n      \"criterion\": \"criterion-name\",\n      \"score\": <1-10>,\n      \"details\": \"Specific findings. Include file paths, line numbers,\
+        \ exact error messages, curl commands that failed.\"\n    }\n  ],\n  \"overallSummary\": \"What worked, what didn't, what the generator must fix.\"\n}\n```\n\n**Determine pass/fail** \u2014 `passed`\
+        \ is `true` ONLY if every single score >= `passThreshold`.\n\n**Update state.json based on result:**\n\n**If PASSED (all criteria >= threshold):**\n- Add current sprint number to `completedSprints`\
+        \ array\n- If `sprint` < `totalSprints`: set `\"phase\": \"negotiating\"`, increment `\"sprint\"` by 1, set `\"retry\": 0`\n- If `sprint` == `totalSprints`: set `\"phase\": \"complete\"`, set `\"\
+        status\": \"complete\"`\n\n**If FAILED:**\n- If `retry` < `maxRetries`: set `\"phase\": \"building\"`, increment `\"retry\"` by 1\n- If `retry` >= `maxRetries`: set `\"phase\": \"failed\"`, set\
+        \ `\"status\": \"failed\"`\n\n**IMPORTANT**: Kill all background processes before finishing:\n```bash\npkill -f \"node|bun|python|npm|next|vite|webpack\" 2>/dev/null || true\n```\n\n---\n\n## COMPLETION\n\
+        \nAfter updating state.json, check the `status` field:\n- If `\"status\": \"complete\"` \u2192 all sprints passed! Output: `<promise>ALL_SPRINTS_COMPLETE</promise>`\n- If `\"status\": \"failed\"\
+        ` \u2192 sprint failed after max retries. Output: `<promise>ALL_SPRINTS_COMPLETE</promise>`\n- If `\"status\": \"running\"` \u2192 more work to do. Do NOT output any completion signal.\n"
+      until: ALL_SPRINTS_COMPLETE
+      max_iterations: 60
+      fresh_context: true
+      until_bash: |
+        grep -qE '"status"\s*:\s*"(complete|failed)"' "$ARTIFACTS_DIR/state.json"
+  report:
+    depends_on:
+    - adversarial-sprint
+    trigger_rule: all_done
+    context: fresh
+    model: haiku
+    prompt: "You are a project reporter. Generate a comprehensive summary of the adversarial development run.\n\n## Read ALL of these files:\n1. `$ARTIFACTS_DIR/state.json` \u2014 final state (tells you\
+      \ success/failure, sprint count)\n2. `$ARTIFACTS_DIR/spec.md` \u2014 the original product spec\n3. All files in `$ARTIFACTS_DIR/contracts/` \u2014 sprint contracts (use Glob to find them)\n4. All\
+      \ files in `$ARTIFACTS_DIR/feedback/` \u2014 evaluation results (use Glob to find them)\n\n## Generate a report covering:\n\n### Build Summary\n- What application was built (from the spec)\n- Final\
+      \ status: did all sprints pass or did it fail? On which sprint?\n- Total sprints completed vs planned\n\n### Per-Sprint Breakdown\nFor each sprint that was attempted:\n- What the contract required\
+      \ (features + key criteria)\n- How many attempts were needed (retry count)\n- Final scores for each criterion\n- Key feedback that drove retries and improvements\n\n### Quality Metrics\n- Average\
+      \ score across all final-round criteria\n- Which criteria required the most retries\n- Where the adversarial evaluator pushed quality the highest\n\n### How to Run\n- The application code lives in:\
+      \ `$ARTIFACTS_DIR/app/`\n- Include the tech stack and how to start the app (from the spec)\n- Include any setup steps (install deps, env vars, etc.)\n\nWrite this report to `$ARTIFACTS_DIR/report.md`\
+      \ AND output it as your response so the user\nsees it directly.\n"
+    allowed_tools:
+    - Read
+    - Write
+    - Glob
+    - Grep

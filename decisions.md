@@ -181,12 +181,142 @@ Source: Implementation worktree
 
 ---
 
+---
+
+## Session 5 — v0.2 and Archon parity (2026-04-12)
+
+Source: Archon parity worktree (`compare-with-archon`)
+
+Goal: Express the 20 default workflows from `coleam00/Archon` in Harnessfile
+and compile them back to Archon YAML with round-trip fidelity, to validate
+that the Harnessfile model covers the "AI coding workflow engine" use case.
+
+This session opened Harnessfile v0.2 as a new, additive version — v0.1 is
+frozen per D13. All changes below are purely additive; v0.1 files continue
+to parse and validate identically.
+
+### D39: v0.2 as an additive version
+**Decision:** Open a new `harnessfile: "0.2"` version level. v0.2 is
+strictly additive over v0.1 — any v0.1 Harnessfile is also a valid v0.2
+Harnessfile. v0.1 remains frozen per D13.
+**Rationale:** Archon parity requires ~10 new constructs. A clean version
+bump avoids pretending these are clarifications of v0.1.
+
+### D40: Inline execution modes on steps
+**Decision:** A step in v0.2 can carry its own work via one of four
+mutually-exclusive fields instead of referencing a pre-defined agent:
+`prompt:` (ad-hoc agent call), `bash:` (shell script), `command:` (external
+command reference, opaque to Harnessfile), `loop:` (iterative block, see
+D42). The existing `agent:` field stays as-is.
+**Rationale:** Archon workflows almost never predefine agents — they inline
+everything in `nodes[].prompt` / `.bash` / `.command`. Requiring Harnessfile
+authors to redeclare "agents" that only exist to hold instructions was
+wasteful.
+**Impact:** `agents:` is now optional in v0.2 (still required in v0.1).
+`type: agent` steps without an `agent:` ref are valid as long as they
+provide an inline execution mode.
+
+### D41: `depends_on` as a backward-edge form
+**Decision:** v0.2 adds `depends_on: [id, ...]` as an alternative to the
+forward-edge `next:`. Both forms coexist in a harness; the validator folds
+them into a unified forward-graph view for reachability and cycle checks.
+The Archon compile provider emits `depends_on:` natively for round-trip
+fidelity.
+**Rationale:** Archon's DAG model is `depends_on:`-first. Translating
+`next:` → `depends_on:` (by inverting the graph) is mechanical and happens
+in the compile provider. Accepting both in the parser saves authors the
+mental tax of inverting edges in their head.
+
+### D42: `loop:` is orthogonal to `eval:`
+**Decision:** v0.2 adds a `loop:` block on steps with fields `until`,
+`until-bash`, `max-iterations`, `fresh-context`, `interactive`,
+`gate-message`. Termination is by agent signal (`<promise>{until}</promise>`
+marker in output) or bash exit code, not by metric threshold. `eval:` (v0.1,
+metric-based retry) continues to exist unchanged. A step can have both.
+**Rationale:** Archon's `loop:` and Harnessfile's `eval:` are fundamentally
+different loop constructs. Collapsing them was considered and rejected
+during v0.1 design (D15 collapsed eval-loop into a step property); in v0.2
+we keep that direction for evals but add a second loop kind for
+agent-signal termination.
+
+### D43: `wait-for` — four fan-in quadrants
+**Decision:** v0.2 adds `wait-for: all | any | all-done | any-done` on
+steps. Refines (does not supersede) D33. Implicit default is still `all`,
+which continues to fan-in-append as D33 specified. `any` / `all-done` /
+`any-done` are opt-in.
+**Rationale:** Archon has three trigger rules (`all_success`, `one_success`,
+`all_done`); v0.2 exposes all three plus `any-done` for quadrant
+completeness. `any-done` has no Archon equivalent — the compile provider
+warns and falls back to `one_success`.
+
+### D44: Provider passthrough via `raw:` bag
+**Decision:** Any field not in the core spec vocabulary — at both top-level
+and per-step — is preserved verbatim in a `raw:` bag on the IR. Compile
+providers (and runtime providers) consume the bag to emit/execute
+target-specific fields.
+**Rationale:** Archon uses provider-specific fields like `approval:`,
+`skills:`, `mcp:`, `idle_timeout:`, `context: fresh`, `hooks:` (in Claude
+Code PreToolUse/PostToolUse format). Formalizing each of these in the
+core spec would bloat the vocabulary and constrain future targets. The
+passthrough bag is Kubernetes CRD–style: the spec defines what it knows,
+and everything else flows through untouched.
+**Impact:** The `hooks:` key has dual semantics. When all its children are
+v0.1 lifecycle events (`on-start`, `before-step`, …), it parses as a v0.1
+`HooksDef`. Otherwise it flows to `raw` as a provider-specific construct.
+
+### D45: CompileProvider — code-gen face of the provider interface
+**Decision:** v0.2 introduces a second provider contract,
+`CompileProvider`, alongside v0.1's execute-oriented `HarnessProvider`. A
+compile provider translates IR → target files (YAML, JSON, source) without
+running the harness. Output is `{ files, warnings }` where warnings are
+structured with `{ severity, code, message, path, suggestion }`.
+**Rationale:** Archon is not a runtime we want to reimplement — it's a
+compile target. The provider interface originally assumed runtime execution
+(createRun, resumeRun, listRuns). Adding a distinct contract keeps the two
+faces clean and leaves room for multiple compile targets (CrewAI, LangFlow)
+without rewriting the runtime interface.
+**Companion:** new CLI command `harnessfile compile --target <target>` with
+`--out`, `--strict`, `--json` options.
+
+### D46: Archon as a compile-only provider
+**Decision:** The `archon/v1` compile provider emits Archon workflow YAML
+matching the format used in `coleam00/Archon`'s
+`.archon/workflows/defaults/`. It does not execute Harnessfiles. Archon
+itself runs them after compilation.
+**Round-trip goal:** all 20 default Archon workflows, vendored in
+`packages/cli/tests/fixtures/archon/`, have hand-written Harnessfile
+equivalents in `examples/archon/` that compile back to structurally
+equivalent YAML under canonical normalization. The parity test asserts
+this on every run.
+**Rationale:** This gives Harnessfile a credible claim on the "AI coding
+harness" use case Archon defines, without forking Archon's runtime. Authors
+who want Archon's worktree isolation, Slack/Discord/Telegram adapters, and
+dashboard get them for free; authors who want to stay Harnessfile-native
+swap compile targets later.
+
+### D47: `${{ VAR }}` env substitution in v0.2
+**Decision:** v0.2 switches env var substitution from v0.1's `${VAR}` /
+`${VAR:-default}` (Docker Compose style) to `${{ VAR }}` / `${{ VAR:-default }}`
+(GitHub Actions style). The substituter detects the declared
+`harnessfile:` version in a pre-parse regex scan and picks the pattern
+accordingly. v0.1 files are unaffected.
+**Rationale:** v0.1's syntax collides with POSIX shell parameter expansion
+inside `bash:` block scalars. Archon workflows commonly contain shell
+expansions like `${DURATION:-150}` in bash nodes, and the v0.1 substituter
+would eat them as if they were env var references. The double-brace form
+is unambiguous: Harnessfile-substitutable refs use `${{ ... }}`; shell
+expansions use `${...}` and pass through untouched.
+
+---
+
 ## Open Items
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | **Import/compose mechanism** — multi-file harnesses. All reviews suggest deferring to v0.2. | DEFERRED to v0.2 |
-| 2 | **Dynamic fan-out** — map-reduce pattern (N instances from runtime state). | DEFERRED to v0.2 |
-| 3 | **Provider version pinning / lockfile** — reproducible harness execution. | DEFERRED to v0.2 |
+| 1 | **Import/compose mechanism** — multi-file harnesses. All reviews suggest deferring to v0.2. | STILL DEFERRED |
+| 2 | **Dynamic fan-out** — map-reduce pattern (N instances from runtime state). | STILL DEFERRED |
+| 3 | **Provider version pinning / lockfile** — reproducible harness execution. | STILL DEFERRED |
 | 4 | **JSON Schema** — needs to be written (D28). | TODO |
 | 5 | **GitHub repo rename** — rename openharness to harnessfile (D29). | TODO |
+| 6 | **Runtime execution of v0.2 shapes** — LangGraph provider only supports v0.1 shapes; v0.2-only features compile via `harnessfile compile` but don't execute via `harnessfile up`. | DEFERRED to post-v0.2 |
+| 7 | **Additional compile targets** — CrewAI, LangFlow. Interface is general; no concrete targets beyond `archon/v1` yet. | FUTURE |

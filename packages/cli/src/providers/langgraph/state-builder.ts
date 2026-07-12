@@ -10,9 +10,10 @@ export function buildStateAnnotation(ir: Harnessfile) {
   const outputFields: Record<string, string> = {};
   if (ir.steps) {
     for (const [stepName, step] of Object.entries(ir.steps)) {
-      if (step.output) {
+      if (step.output && typeof step.output === "object") {
         for (const [field, type] of Object.entries(step.output)) {
-          outputFields[`${stepName}_${field}`] = type;
+          outputFields[`${stepName}_${field}`] =
+            typeof type === "string" ? type : "unknown";
         }
       }
     }
