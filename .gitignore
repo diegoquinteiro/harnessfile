@@ -8,9 +8,10 @@ Thumbs.db
 *.swp
 *.swo
 
-# Claude Code
+# Claude Code — local files ignored; the harness-generated symlinks are versioned
 .claude/*
-!.claude/skills/
+!.claude/skills
+!.claude/agents
 
 # Node (for future tooling)
 node_modules/

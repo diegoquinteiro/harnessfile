@@ -1,0 +1,42 @@
+# The Harnessfile project's own harness — the spec maintaining itself (dogfood, D50).
+harnessfile: "0.2"
+name: harnessfile-maintenance
+
+observability:
+  tracing: otel/v1
+
+security:
+  budget:
+    max-cost: "$25.00"
+
+triggers:
+  issue-assigned:
+    provider: github/v1
+    event: issue-assigned
+    output: { issue_id: string, title: string, description: string }
+    next: maintenance
+
+  industry-watch:
+    schedule: "0 9 * * 1" # Mondays 09:00
+    timezone: America/Sao_Paulo
+    prompt: ./autopilots/industry-watch.md
+    next: researcher-sweep
+
+steps:
+  maintenance:
+    squad: maintenance
+
+  researcher-sweep:
+    agent: researcher
+
+targets:
+  claude-code:
+    provider: claude-code/v1 # .claude/{agents,skills} symlinks, committed
+  codex:
+    provider: codex/v1 # .codex/agents/*.toml, committed
+  github:
+    provider: github-agent-hq/v1 # .github/agents/*.md, committed
+  multica:
+    provider: multica/v1
+    owns: [model, runtime, concurrency, env, mcp]
+    # --apply requires MULTICA_WORKSPACE_ID or x-workspace (not bound yet).

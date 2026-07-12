@@ -61,6 +61,7 @@ You triage Sentry issues. Deduplicate by issue id, ignore noise, file genuine bu
 
 | Path | Contents |
 |---|---|
+| [`.agents/`](./.agents/) | **This project's own harness** (dogfood, D50) — maintenance squad, project skills, weekly industry-watch autopilot; `.claude/`, `.codex/`, `.github/agents/` are synced from it by the CLI |
 | [`spec/v0.2-draft.md`](./spec/v0.2-draft.md) | The current draft specification |
 | [`spec/v0.1-draft.md`](./spec/v0.1-draft.md) | Superseded; extended reference for the graph model and interfaces |
 | [`decisions.md`](./decisions.md) | Chronological design decision record |

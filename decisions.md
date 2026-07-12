@@ -236,6 +236,16 @@ Source: Main conversation. Context: the project was stale since 2026-04-11. Deep
 ### D49: Version continuity — v0.2 with a pivot note
 **Decision:** Publish as `spec/v0.2-draft.md`; `spec/v0.1-draft.md` gets a superseded banner. Decision numbering continues (no reboot). Rationale: the repo was never widely announced; the change cost is internal.
 
+### D50: The project maintains its own harness (dogfood)
+**Decision:** The Harnessfile repository carries its own `.agents/` harness: a maintenance squad
+(maintainer leader, researcher, spec-editor, cli-engineer, ui-engineer, reviewer), project skills
+(decision-record, spec-consistency, fermata-fidelity), a GitHub issue trigger, and a weekly
+scheduled `industry-watch` sweep (tracks Open Item #7 among others). Local targets (claude-code
+symlinks, codex TOML, github agents) are synced by the CLI and committed; the multica target is
+declared but unbound (`--apply` refuses until a workspace is set).
+**Rationale:** The spec's first ongoing user should be itself; every spec change now has to
+survive its own harness.
+
 ---
 
 ## Open Items
