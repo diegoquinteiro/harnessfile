@@ -176,6 +176,9 @@ Source: Implementation worktree
 **Decision:** `harnessfile up` starts a long-running server. Triggers listen for events and spawn runs. Multiple runs flow concurrently through the same compiled graph, isolated by thread ID. Gates suspend individual runs via LangGraph's checkpointing, not the whole process.
 **Rationale:** A harness serving production traffic must handle concurrent requests. Each trigger event (webhook POST, cron tick) creates an independent execution with its own state. Gate pauses must not block other runs.
 
+### D39: AGENTS.md is the canonical project guidance
+**Decision:** Keep all shared project guidance in `AGENTS.md`. `CLAUDE.md` must contain only `@AGENTS.md`, using Claude Code's import syntax, so every supported coding agent reads the same instructions from a single source of truth.
+
 ---
 
 ## Open Items
