@@ -219,6 +219,160 @@ const EvalEditor: FC<{ evals: EvalConfig[]; maxIterations?: number; update: (d: 
   );
 };
 
+// --- Shared schema editor (used for trigger.output, agent.output, output.input) ---
+
+const SchemaEditor: FC<{
+  schema: Record<string, string> | undefined;
+  onChange: (next: Record<string, string> | undefined) => void;
+  label: string;
+  accent: string;
+  accentSoft: string;
+  accentBorder: string;
+}> = ({ schema, onChange, label, accent, accentSoft, accentBorder }) => {
+  const entries = Object.entries(schema || {});
+
+  const setEntry = (idx: number, name: string, type: string) => {
+    const next: Record<string, string> = {};
+    entries.forEach(([n, t], i) => {
+      if (i === idx) {
+        if (name) next[name] = type || 'any';
+      } else {
+        next[n] = t;
+      }
+    });
+    onChange(Object.keys(next).length ? next : undefined);
+  };
+
+  const addEntry = () => {
+    const next: Record<string, string> = { ...(schema || {}) };
+    let baseName = 'field';
+    let n = 1;
+    while (next[`${baseName}${n === 1 ? '' : n}`] !== undefined) n++;
+    next[`${baseName}${n === 1 ? '' : n}`] = 'string';
+    onChange(next);
+  };
+
+  const removeEntry = (key: string) => {
+    const next = { ...(schema || {}) };
+    delete next[key];
+    onChange(Object.keys(next).length ? next : undefined);
+  };
+
+  return (
+    <div className="mt-2 rounded-lg p-2" style={{ background: 'var(--color-surface-0)', border: `1px solid ${accentBorder}` }}>
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="flex items-center gap-1">
+          <div className="w-1.5 h-1.5 rounded-full" style={{ background: accent }} />
+          <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: accent }}>
+            {label}
+          </span>
+        </div>
+        <button
+          onClick={(e) => { e.stopPropagation(); addEntry(); }}
+          onMouseDown={stopEvent}
+          className="flex items-center gap-0.5 text-[9px] font-medium rounded-md px-1.5 py-0.5 cursor-pointer bg-transparent border-none transition-colors"
+          style={{ color: accent }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = accentSoft; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+        >
+          <Plus size={10} /> Add
+        </button>
+      </div>
+      {entries.length === 0 ? (
+        <div className="text-[9px] py-1" style={{ color: 'var(--color-text-3)' }}>
+          No fields. Untyped — payload flows through unchanged.
+        </div>
+      ) : (
+        <div className="space-y-1">
+          {entries.map(([name, type], i) => (
+            <div key={`${i}-${name}`} className="flex items-center gap-1">
+              <input
+                value={name}
+                onChange={(e) => setEntry(i, e.target.value, type)}
+                placeholder="field"
+                className="nodrag flex-1 min-w-0 rounded px-1.5 py-0.5 outline-none text-[10px]"
+                style={{ background: 'var(--color-surface-0)', border: '1px solid var(--color-border-1)', color: 'var(--color-text-1)', fontFamily: 'var(--font-mono)' }}
+                {...stopMouse}
+              />
+              <span className="text-[9px]" style={{ color: 'var(--color-text-3)' }}>:</span>
+              <input
+                value={type}
+                onChange={(e) => setEntry(i, name, e.target.value)}
+                placeholder="string"
+                className="nodrag w-16 shrink-0 rounded px-1.5 py-0.5 outline-none text-[10px]"
+                style={{ background: 'var(--color-surface-0)', border: '1px solid var(--color-border-1)', color: 'var(--color-text-2)', fontFamily: 'var(--font-mono)' }}
+                {...stopMouse}
+              />
+              <button
+                onClick={(e) => { e.stopPropagation(); removeEntry(name); }}
+                onMouseDown={stopEvent}
+                className="p-0.5 bg-transparent border-none cursor-pointer shrink-0 rounded transition-colors"
+                style={{ color: 'var(--color-text-3)' }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--color-red)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--color-text-3)'; }}
+              >
+                <X size={10} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// --- Shared error-handling section ---
+
+const ErrorHandlingEditor: FC<{ data: StepNodeData; update: (d: Partial<StepNodeData>) => void }> = ({ data, update }) => (
+  <div className="mt-2 rounded-lg p-2" style={{ background: 'var(--color-surface-0)', border: '1px solid rgba(239,96,96,0.18)' }}>
+    <div className="flex items-center gap-1 mb-1.5">
+      <div className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--color-red)' }} />
+      <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--color-red)' }}>
+        Error handling
+      </span>
+    </div>
+    <div className="grid grid-cols-2 gap-1.5">
+      <div>
+        <FieldLabel>On error</FieldLabel>
+        <InlineSelect
+          value={data.onError || 'fail'}
+          onChange={(v) => update({ onError: v as 'fail' | 'skip' | 'continue' })}
+          options={[
+            { value: 'fail', label: 'fail' },
+            { value: 'skip', label: 'skip' },
+            { value: 'continue', label: 'continue' },
+          ]}
+        />
+      </div>
+      <div>
+        <FieldLabel>Retry</FieldLabel>
+        <InlineField
+          value={String(data.retry ?? '')}
+          onChange={(v) => {
+            const n = parseInt(v, 10);
+            update({ retry: isNaN(n) ? undefined : n });
+          }}
+          placeholder="0"
+          mono
+          small
+        />
+      </div>
+    </div>
+    {data.stepType !== 'gate' && (
+      <div className="mt-1.5">
+        <FieldLabel>Timeout</FieldLabel>
+        <InlineField
+          value={data.timeout || ''}
+          onChange={(v) => update({ timeout: v || undefined })}
+          placeholder="5m, 30s, 1h..."
+          mono
+          small
+        />
+      </div>
+    )}
+  </div>
+);
+
 // --- Type-specific inline editors ---
 
 const TriggerEditor: FC<{ data: StepNodeData; update: (d: Partial<StepNodeData>) => void }> = ({ data, update }) => (
@@ -237,6 +391,14 @@ const TriggerEditor: FC<{ data: StepNodeData; update: (d: Partial<StepNodeData>)
         <InlineField value={data.filter || ''} onChange={(v) => update({ filter: v })} placeholder="optional filter..." mono small />
       </div>
     )}
+    <SchemaEditor
+      schema={data.outputSchema}
+      onChange={(v) => update({ outputSchema: v })}
+      label="Output schema"
+      accent="var(--color-amber)"
+      accentSoft="var(--color-amber-soft)"
+      accentBorder="rgba(232,149,42,0.18)"
+    />
   </div>
 );
 
@@ -249,7 +411,16 @@ const AgentEditor: FC<{ data: StepNodeData; update: (d: Partial<StepNodeData>) =
         <FieldLabel>Agent</FieldLabel>
         <InlineSelect value={data.agent || ''} onChange={(v) => update({ agent: v })} options={agentOptions} placeholder="select agent..." />
       </div>
+      <SchemaEditor
+        schema={data.outputSchema}
+        onChange={(v) => update({ outputSchema: v })}
+        label="Output schema"
+        accent="var(--color-blue)"
+        accentSoft="var(--color-blue-soft)"
+        accentBorder="rgba(61,139,253,0.18)"
+      />
       <EvalEditor evals={data.eval || []} maxIterations={data.maxIterations} update={update} />
+      <ErrorHandlingEditor data={data} update={update} />
     </div>
   );
 };
@@ -275,6 +446,7 @@ const GateEditor: FC<{ data: StepNodeData; update: (d: Partial<StepNodeData>) =>
           options={[{ value: 'reject', label: 'reject' }, { value: 'approve', label: 'approve' }, { value: 'escalate', label: 'escalate' }]} />
       </div>
     </div>
+    <ErrorHandlingEditor data={data} update={update} />
   </div>
 );
 
@@ -290,6 +462,7 @@ const RouterEditor: FC<{ data: StepNodeData; update: (d: Partial<StepNodeData>) 
       <div className="text-[9px] mt-1" style={{ color: 'var(--color-text-3)' }}>
         Connect edges from the ◇ handle to define routes. Click edge labels to rename.
       </div>
+      <ErrorHandlingEditor data={data} update={update} />
     </div>
   );
 };
@@ -321,10 +494,34 @@ const OrchestratorEditor: FC<{ data: StepNodeData; update: (d: Partial<StepNodeD
         <FieldLabel>Max Agents</FieldLabel>
         <InlineField value={String(data.maxAgents || 5)} onChange={(v) => update({ maxAgents: parseInt(v) || 5 })} />
       </div>
+      <SchemaEditor
+        schema={data.outputSchema}
+        onChange={(v) => update({ outputSchema: v })}
+        label="Output schema"
+        accent="var(--color-cyan)"
+        accentSoft="var(--color-cyan-soft)"
+        accentBorder="rgba(32,200,221,0.18)"
+      />
       <EvalEditor evals={data.eval || []} maxIterations={data.maxIterations} update={update} />
+      <ErrorHandlingEditor data={data} update={update} />
     </div>
   );
 };
+
+// --- Output editor ---
+
+const OutputEditor: FC<{ data: StepNodeData; update: (d: Partial<StepNodeData>) => void }> = ({ data, update }) => (
+  <div className="space-y-2 mt-2">
+    <SchemaEditor
+      schema={data.inputSchema}
+      onChange={(v) => update({ inputSchema: v })}
+      label="Input schema"
+      accent="var(--color-pink)"
+      accentSoft="var(--color-pink-soft)"
+      accentBorder="rgba(232,112,168,0.18)"
+    />
+  </div>
+);
 
 // --- Type picker popover ---
 const allTypes = Object.entries(typeConfig).map(([type, cfg]) => ({
@@ -529,11 +726,7 @@ const HarnessNode: FC<NodeProps> = ({ id, data, selected }) => {
             {stepType === 'gate' && <GateEditor data={nodeData} update={update} />}
             {stepType === 'router' && <RouterEditor data={nodeData} update={update} />}
             {stepType === 'orchestrator' && <OrchestratorEditor data={nodeData} update={update} />}
-            {stepType === 'output' && (
-              <div className="mt-2 text-[9px]" style={{ color: 'var(--color-text-3)' }}>
-                Exit node. Connect incoming edges to define completion paths.
-              </div>
-            )}
+            {stepType === 'output' && <OutputEditor data={nodeData} update={update} />}
           </div>
         )}
 

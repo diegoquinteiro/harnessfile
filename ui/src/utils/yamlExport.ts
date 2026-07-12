@@ -84,10 +84,14 @@ export function exportToYaml(
           event: data.event || 'webhook',
           ...(data.filter && { filter: data.filter }),
           ...(data.provider && { provider: data.provider }),
+          ...(data.outputSchema && Object.keys(data.outputSchema).length > 0 && { output: data.outputSchema }),
         };
         break;
       case 'output':
-        step = { type: 'output' };
+        step = {
+          type: 'output',
+          ...(data.inputSchema && Object.keys(data.inputSchema).length > 0 && { input: data.inputSchema }),
+        };
         break;
       case 'gate':
         step = {
@@ -122,6 +126,7 @@ export function exportToYaml(
           ...(data.eval?.length && { eval: data.eval }),
           ...(data.maxIterations && data.eval?.length && { 'max-iterations': data.maxIterations }),
           ...(data.context && { context: data.context }),
+          ...(data.outputSchema && Object.keys(data.outputSchema).length > 0 && { output: data.outputSchema }),
         };
         break;
     }

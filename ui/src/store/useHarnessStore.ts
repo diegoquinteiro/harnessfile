@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { type Node, type Edge, type Connection, addEdge, applyNodeChanges, applyEdgeChanges, type NodeChange, type EdgeChange } from '@xyflow/react';
 import type { Agent, StepType, EvalConfig, Observability, Memory, Security, Resilience, HooksConfig } from '../types/harnessfile';
 import { demoAgents, demoNodes, demoEdges } from './demoSeed';
+import type { ParsedHarness } from '../utils/yamlImport';
+import type { FSFileHandle } from '../utils/fileIO';
 
 type HarnessNode = Node<StepNodeData, 'harnessNode'>;
 
@@ -53,6 +55,8 @@ interface ContextMenu {
   y: number;
 }
 
+export type SidebarSection = 'file' | 'steps' | 'agents';
+
 interface HarnessState {
   nodes: HarnessNode[];
   edges: Edge<HarnessEdgeData>[];
@@ -74,6 +78,17 @@ interface HarnessState {
   settingsTab: string;
   showYaml: boolean;
   contextMenu: ContextMenu | null;
+
+  // Sidebar
+  sidebarSection: SidebarSection;
+  sidebarCollapsed: boolean;
+
+  // Edge inspector
+  inspectingEdgeId: string | null;
+
+  // File state
+  fileHandle: FSFileHandle | null;
+  fileName: string | null;
 
   // Actions
   onNodesChange: (changes: NodeChange<HarnessNode>[]) => void;
@@ -108,6 +123,20 @@ interface HarnessState {
   setSettingsTab: (tab: string) => void;
   setShowYaml: (show: boolean) => void;
   setContextMenu: (menu: ContextMenu | null) => void;
+
+  // Sidebar
+  setSidebarSection: (section: SidebarSection) => void;
+  toggleSidebarSection: (section: SidebarSection) => void;
+  setSidebarCollapsed: (collapsed: boolean) => void;
+
+  // Edge inspector
+  setInspectingEdge: (id: string | null) => void;
+
+  // File operations
+  setFileHandle: (handle: FSFileHandle | null) => void;
+  setFileName: (name: string | null) => void;
+  loadHarnessfile: (parsed: ParsedHarness) => void;
+  newHarnessfile: () => void;
 }
 
 let nodeIdCounter = 0;
@@ -155,6 +184,14 @@ export const useHarnessStore = create<HarnessState>((set, get) => ({
   settingsTab: 'general',
   showYaml: false,
   contextMenu: null,
+
+  sidebarSection: (localStorage.getItem('hf-sidebar-section') as SidebarSection) || 'steps',
+  sidebarCollapsed: localStorage.getItem('hf-sidebar-collapsed') === '1',
+
+  fileHandle: null,
+  fileName: null,
+
+  inspectingEdgeId: null,
 
   onNodesChange: (changes) => set({ nodes: applyNodeChanges(changes, get().nodes) as HarnessNode[] }),
   onEdgesChange: (changes) => set({ edges: applyEdgeChanges(changes, get().edges) as Edge<HarnessEdgeData>[] }),
@@ -346,5 +383,85 @@ export const useHarnessStore = create<HarnessState>((set, get) => ({
   toggleTheme: () => {
     const next = get().theme === 'dark' ? 'light' : 'dark';
     get().setTheme(next);
+  },
+
+  setSidebarSection: (section) => {
+    localStorage.setItem('hf-sidebar-section', section);
+    localStorage.setItem('hf-sidebar-collapsed', '0');
+    set({ sidebarSection: section, sidebarCollapsed: false });
+  },
+  toggleSidebarSection: (section) => {
+    const { sidebarSection, sidebarCollapsed } = get();
+    if (sidebarSection === section && !sidebarCollapsed) {
+      localStorage.setItem('hf-sidebar-collapsed', '1');
+      set({ sidebarCollapsed: true });
+    } else {
+      localStorage.setItem('hf-sidebar-section', section);
+      localStorage.setItem('hf-sidebar-collapsed', '0');
+      set({ sidebarSection: section, sidebarCollapsed: false });
+    }
+  },
+  setSidebarCollapsed: (collapsed) => {
+    localStorage.setItem('hf-sidebar-collapsed', collapsed ? '1' : '0');
+    set({ sidebarCollapsed: collapsed });
+  },
+
+  setFileHandle: (handle) => set({ fileHandle: handle }),
+  setFileName: (name) => set({ fileName: name }),
+
+  setInspectingEdge: (id) => set({ inspectingEdgeId: id }),
+
+  loadHarnessfile: (parsed) => {
+    // Rebuild nodes with fresh internal IDs
+    const rebuiltNodes: HarnessNode[] = parsed.nodes.map((n, i) => {
+      nodeIdCounter = Math.max(nodeIdCounter, i + 1);
+      return {
+        id: n.id,
+        type: 'harnessNode' as const,
+        position: n.position,
+        data: n.data,
+      };
+    });
+    // Reset the counter baseline based on incoming IDs
+    const maxId = parsed.nodes.reduce((max, n) => {
+      const m = /^step_(\d+)$/.exec(n.id);
+      return m ? Math.max(max, parseInt(m[1], 10)) : max;
+    }, 0);
+    nodeIdCounter = maxId;
+
+    set({
+      nodes: rebuiltNodes,
+      edges: parsed.edges,
+      agents: parsed.agents,
+      harnessName: parsed.harnessName,
+      observability: parsed.observability,
+      memory: parsed.memory,
+      security: parsed.security,
+      resilience: parsed.resilience,
+      hooks: parsed.hooks,
+      selectedNodeId: null,
+      editingNodeId: null,
+      contextMenu: null,
+    });
+  },
+
+  newHarnessfile: () => {
+    nodeIdCounter = 0;
+    set({
+      nodes: [],
+      edges: [],
+      agents: {},
+      harnessName: 'untitled',
+      observability: {},
+      memory: null,
+      security: {},
+      resilience: {},
+      hooks: {},
+      selectedNodeId: null,
+      editingNodeId: null,
+      contextMenu: null,
+      fileHandle: null,
+      fileName: null,
+    });
   },
 }));
