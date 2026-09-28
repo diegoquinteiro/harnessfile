@@ -1,10 +1,12 @@
 import { loadHarnessDirectory } from "../parser/directory.js";
 import { validateHarnessfile } from "../validator/validate.js";
-import { getProvider } from "../providers/registry.js";
+import { createServiceRegistry } from "../services/builtins.js";
+import { loadPlugins } from "../services/registry.js";
 import { logInfo, logWarn, logError } from "../runtime/logger.js";
 
 export interface ValidateOptions {
   provider?: string;
+  plugin?: string[];
 }
 
 export async function validate(
@@ -36,8 +38,17 @@ export async function validate(
     }
 
     // Provider compatibility check
-    if (options.provider) {
-      const provider = getProvider(options.provider);
+    if (options.provider || options.plugin?.length) {
+      const registry = createServiceRegistry();
+      await loadPlugins(registry, options.plugin ?? [], harness.root);
+      const selected = options.provider === "langgraph" ? "langgraph/v1" : options.provider ?? harness.ir.orchestration?.provider ?? "langgraph/v1";
+      registry.assertAvailable("execution", harness.ir.execution?.provider ?? "local/v1");
+      registry.assertAvailable("identity", harness.ir.identity?.provider ?? "local/v1");
+      if (harness.ir.projectManagement) registry.assertAvailable("project-management", harness.ir.projectManagement.provider);
+      const provider = await registry.create("orchestration", selected, {
+        ir: harness.ir, workspaceRoot: harness.root, drivers: registry.runtimeDrivers(),
+        async secret() { throw new Error("Validation cannot resolve secrets"); },
+      });
       const providerResult = provider.validate(harness.ir);
 
       for (const warning of providerResult.warnings) {

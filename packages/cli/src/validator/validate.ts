@@ -16,6 +16,7 @@ export function validateHarnessfile(ir: Harnessfile): ValidationResult {
   validateVersion(ir, errors);
   validateName(ir, errors);
   validateRuntimes(ir, errors);
+  validateServices(ir, errors);
   validateAgents(ir, errors, warnings);
   validateSquads(ir, errors);
   validateTargets(ir, errors, warnings);
@@ -26,6 +27,28 @@ export function validateHarnessfile(ir: Harnessfile): ValidationResult {
   }
 
   return { valid: errors.length === 0, errors, warnings };
+}
+
+function validateServices(ir: Harnessfile, errors: ValidationError[]) {
+  const bindings = {
+    orchestration: ir.orchestration,
+    execution: ir.execution,
+    "project-management": ir.projectManagement,
+    identity: ir.identity,
+  };
+  const pattern = /^([a-z0-9-]+\/)?[a-z0-9-]+\/v[0-9]+$/;
+  for (const [name, binding] of Object.entries(bindings)) {
+    if (binding === undefined) continue;
+    const provider = binding?.provider;
+    const id = typeof provider === "string" ? provider :
+      provider && typeof provider === "object" && !Array.isArray(provider) ? provider.type : undefined;
+    if (typeof id !== "string" || !pattern.test(id)) {
+      errors.push({
+        path: `${name}.provider`,
+        message: `Service '${name}' needs a provider matching <name>/v<version> or <vendor>/<name>/v<version>.`,
+      });
+    }
+  }
 }
 
 function validateRuntimes(ir: Harnessfile, errors: ValidationError[]) {

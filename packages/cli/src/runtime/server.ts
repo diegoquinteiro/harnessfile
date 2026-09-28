@@ -1,132 +1,127 @@
 import { loadHarnessDirectory } from "../parser/directory.js";
 import { validateHarnessfile } from "../validator/validate.js";
-import { getProvider } from "../providers/registry.js";
-import type { ProviderOptions } from "../providers/interface.js";
+import { composeServices, type ComposedServices, type CompositionOptions } from "../services/compose.js";
+import { providerConfig } from "../services/registry.js";
 import { RunManager } from "./run-manager.js";
 import { TriggerListener } from "./trigger-listener.js";
 import { GateResolver } from "./gate-resolver.js";
 import { logInfo, logError, logWarn } from "./logger.js";
 
-export interface ServerOptions {
+export interface ServerOptions extends CompositionOptions {
   file?: string;
-  provider?: string;
   port?: number;
   gatePort?: number;
   watch?: boolean;
-  checkpointer?: "memory" | "sqlite";
 }
 
 export class HarnessServer {
   private runManager: RunManager | null = null;
   private triggerListener: TriggerListener | null = null;
   private gateResolver: GateResolver | null = null;
+  private services?: ComposedServices;
+  private unsubscribe?: () => Promise<void>;
+  private stopping?: Promise<void>;
+  private startupSettled?: Promise<void>;
+  private resolveShutdown?: () => void;
   private shutdownRequested = false;
 
   async start(options: ServerOptions = {}): Promise<void> {
-    // 1. Parse the .agents/ directory
+    if (this.shutdownRequested) return;
     const harness = loadHarnessDirectory(options.file);
     logInfo(`Loaded ${harness.harnessPath}`);
     const ir = harness.ir;
-
-    // 2. Validate
     const validation = validateHarnessfile(ir);
-    for (const warning of validation.warnings) {
-      logWarn(`${warning.path}: ${warning.message}`);
-    }
+    for (const warning of validation.warnings) logWarn(`${warning.path}: ${warning.message}`);
     if (!validation.valid) {
-      for (const error of validation.errors) {
-        logError(`${error.path}: ${error.message}`);
-      }
+      for (const error of validation.errors) logError(`${error.path}: ${error.message}`);
       throw new Error("Harnessfile validation failed");
     }
-
-    // 3. Get provider and validate compatibility
-    const providerName = options.provider ?? "langgraph";
-    const provider = getProvider(providerName);
-    logInfo(`Provider: ${provider.displayName}`);
-
-    const providerValidation = provider.validate(ir);
-    for (const warning of providerValidation.warnings) {
-      logWarn(`[${providerName}] ${warning.path}: ${warning.message}`);
-    }
-    if (!providerValidation.valid) {
-      for (const error of providerValidation.errors) {
-        logError(`[${providerName}] ${error.path}: ${error.message}`);
-      }
-      throw new Error(`Provider '${providerName}' cannot execute this harness`);
-    }
-
-    // 4. Compile
-    const providerOptions: ProviderOptions = {
-      checkpointer: options.checkpointer ?? "memory",
-      workspaceRoot: harness.root,
-    };
-    const compiledHarness = await provider.compile(ir, providerOptions);
-    logInfo("Graph compiled");
-
-    // 5. Start runtime
-    this.runManager = new RunManager(compiledHarness);
-
-    // 6. Start trigger listeners
-    this.triggerListener = new TriggerListener(ir, this.runManager);
-
-    if (this.triggerListener.hasTriggers()) {
-      // Start gate resolver on separate port
-      this.gateResolver = new GateResolver(this.runManager);
-      await this.gateResolver.start({ port: options.gatePort ?? 8081 });
-
-      // Start trigger listener (this blocks for webhook-based triggers)
-      await this.triggerListener.start({ port: options.port ?? 8080 });
-
-      // Server is now running — wait for shutdown signal
-      console.log(
-        "\n  Harness is running. Press Ctrl+C to stop.\n",
-      );
-      await this.waitForShutdown();
-    } else {
-      // No triggers — single run, then exit
-      await this.triggerListener.start();
-    }
-  }
-
-  async stop(): Promise<void> {
-    this.shutdownRequested = true;
-    logInfo("Shutting down...");
-
-    if (this.triggerListener) {
-      await this.triggerListener.stop();
-    }
-    if (this.gateResolver) {
-      await this.gateResolver.stop();
-    }
-    if (this.runManager) {
-      await this.runManager.shutdown();
-    }
-
-    logInfo("Harness stopped");
-  }
-
-  private waitForShutdown(): Promise<void> {
-    return new Promise((resolve) => {
-      const handler = async () => {
-        process.removeListener("SIGINT", handler);
-        process.removeListener("SIGTERM", handler);
-        await this.stop();
-        resolve();
-      };
-
-      process.on("SIGINT", handler);
-      process.on("SIGTERM", handler);
-
-      // Also resolve if shutdown was requested programmatically
-      const check = () => {
-        if (this.shutdownRequested) {
-          resolve();
-        } else {
-          setTimeout(check, 500);
+    const signal = () => { this.shutdownRequested = true; this.resolveShutdown?.(); };
+    const shutdown = new Promise<void>((resolve) => { this.resolveShutdown = resolve; });
+    let finishStartup!: () => void;
+    this.startupSettled = new Promise<void>((resolve) => { finishStartup = resolve; });
+    process.on("SIGINT", signal);
+    process.on("SIGTERM", signal);
+    try {
+      this.services = await composeServices(ir, { ...options, workspaceRoot: harness.root });
+      logInfo("Providers composed; graph compiled");
+      if (this.shutdownRequested) return;
+      this.runManager = new RunManager(this.services.harness);
+      const tasks = this.services.projectManagement;
+      const taskProvider = ir.projectManagement && providerConfig(ir.projectManagement.provider).type;
+      const managedTriggers = Object.entries(ir.steps ?? {}).filter(([, step]) =>
+        step.type === "trigger" && !step.schedule && step.provider &&
+        providerConfig(step.provider).type === taskProvider,
+      ).map(([name]) => name);
+      if (tasks?.subscribe) {
+        const triggers = Object.values(ir.steps ?? {}).filter((step) => step.type === "trigger");
+        if (triggers.length && managedTriggers.length !== 1) {
+          throw new Error("Project-management ingress requires exactly one trigger with the selected project-management provider, or a graph without triggers");
         }
-      };
-      check();
-    });
+        // Bounded, process-local deduplication. Durable providers/hosts must persist deliveries.
+        const deliveries = new Map<string, Promise<void>>();
+        this.unsubscribe = await tasks.subscribe((event) => {
+          const existing = deliveries.get(event.id);
+          if (existing) return existing;
+          const delivery = Promise.resolve().then(async () => {
+            if (this.shutdownRequested) throw new Error("Harness is shutting down");
+            const trigger = event.input.trigger ?? (managedTriggers.length === 1 ? managedTriggers[0] : undefined);
+            if (managedTriggers.length > 1 && !trigger) throw new Error("Project event must select a trigger when multiple provider triggers exist");
+            if (trigger && !managedTriggers.includes(String(trigger))) throw new Error("Project event selected an unknown provider trigger");
+            await this.runManager!.startRun({ ...event.input, task: event.task, trigger });
+          });
+          deliveries.set(event.id, delivery);
+          void delivery.then(() => {
+            if (deliveries.size > 10000) deliveries.delete(deliveries.keys().next().value!);
+          }, () => deliveries.delete(event.id));
+          return delivery;
+        });
+        if (this.shutdownRequested) return;
+      }
+      this.triggerListener = new TriggerListener(ir, this.runManager, {
+        projectManagement: tasks,
+        managedTriggers: tasks?.subscribe ? managedTriggers : [],
+      });
+      if (this.triggerListener.hasTriggers() || tasks?.subscribe) {
+        this.gateResolver = new GateResolver(this.runManager);
+        await this.gateResolver.start({ port: options.gatePort ?? 8081 });
+        if (this.shutdownRequested) return;
+        if (this.triggerListener.hasTriggers()) await this.triggerListener.start({ port: options.port ?? 8080 });
+        finishStartup();
+        logInfo("Harness is running. Press Ctrl+C to stop.");
+        await shutdown;
+      } else {
+        // A one-shot run can remain active until shutdown cancels its execution.
+        finishStartup();
+        await Promise.race([this.triggerListener.start(), shutdown]);
+      }
+    } finally {
+      // Release stop before awaiting it: stop waits only for resource acquisition,
+      // never for this start() promise or for a long-running graph to finish.
+      finishStartup();
+      process.removeListener("SIGINT", signal);
+      process.removeListener("SIGTERM", signal);
+      await this.stop();
+    }
+  }
+
+  stop(): Promise<void> {
+    this.shutdownRequested = true;
+    this.resolveShutdown?.();
+    return this.stopping ??= (async () => {
+      await this.startupSettled;
+      const errors: unknown[] = [];
+      // Stop ingress first, then execution, engine state, task integration and identity.
+      for (const cleanup of [
+        () => this.triggerListener?.stop(),
+        () => this.unsubscribe?.(),
+        () => this.gateResolver?.stop(),
+        () => this.services?.close(),
+      ]) {
+        try { await cleanup(); } catch (error) { errors.push(error); }
+      }
+      if (errors.length) throw new AggregateError(errors, "Harness shutdown failed");
+      logInfo("Harness stopped");
+    })();
   }
 }

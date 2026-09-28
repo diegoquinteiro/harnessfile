@@ -19,7 +19,7 @@ export class LangGraphProvider implements HarnessProvider {
   name = "langgraph";
   displayName = "LangGraph (TypeScript)";
 
-  validate(ir: Harnessfile): ValidationResult {
+  validate(ir: Harnessfile, options?: ProviderOptions): ValidationResult {
     const errors: ValidationResult["errors"] = [];
     const warnings: ValidationResult["warnings"] = [];
 
@@ -38,6 +38,8 @@ export class LangGraphProvider implements HarnessProvider {
 
     // LangGraph coordinates the graph; coding-agent protocol drivers execute agents (D52–D53).
     for (const [name, agent] of Object.entries(ir.agents)) {
+      // The selected execution environment owns runtime compatibility and placement.
+      if (options?.runtimeExecutor) continue;
       if (!agent.runtime) {
         const issue = {
           path: `agents.${name}.runtime`,
@@ -118,6 +120,8 @@ class LangGraphCompiledHarness implements CompiledHarness {
     { status: RunInfo["status"]; startedAt: Date; suspendedAt?: string }
   >();
   private eventBuffers = new Map<string, HarnessEvent[]>();
+  private pending = new Set<Promise<RunResult>>();
+  private closing = false;
 
   constructor(
     private graph: ReturnType<typeof buildGraph>,
@@ -136,6 +140,7 @@ class LangGraphCompiledHarness implements CompiledHarness {
   }
 
   async createRun(input: Record<string, unknown>): Promise<RunHandle> {
+    if (this.closing) throw new Error("Orchestration provider is closed");
     const threadId = randomUUID();
     this.runs.set(threadId, { status: "running", startedAt: new Date() });
 
@@ -153,6 +158,7 @@ class LangGraphCompiledHarness implements CompiledHarness {
     threadId: string,
     input: Record<string, unknown>,
   ): Promise<RunHandle> {
+    if (this.closing) throw new Error("Orchestration provider is closed");
     const run = this.runs.get(threadId);
     if (!run) {
       throw new Error(`Run '${threadId}' not found`);
@@ -184,6 +190,8 @@ class LangGraphCompiledHarness implements CompiledHarness {
   }
 
   async shutdown(): Promise<void> {
+    this.closing = true;
+    await Promise.allSettled([...this.pending]);
     this.runs.clear();
     this.eventBuffers.clear();
   }
@@ -199,6 +207,7 @@ class LangGraphCompiledHarness implements CompiledHarness {
     this.eventBuffers.set(threadId, events);
     const self = this;
 
+    let segmentFinished = false;
     const resultPromise = (async (): Promise<RunResult> => {
       try {
         events.push({
@@ -275,7 +284,9 @@ class LangGraphCompiledHarness implements CompiledHarness {
           error: message,
         };
       }
-    })();
+    })().finally(() => { segmentFinished = true; });
+    this.pending.add(resultPromise);
+    void resultPromise.then(() => this.pending.delete(resultPromise), () => this.pending.delete(resultPromise));
 
     // Create async iterable from events array (simple polling-based for v0.1)
     const eventIterable: AsyncIterable<HarnessEvent> = {
@@ -285,13 +296,7 @@ class LangGraphCompiledHarness implements CompiledHarness {
           async next() {
             // Wait for new events or completion
             while (index >= events.length) {
-              const run = self.runs.get(threadId);
-              if (
-                run &&
-                (run.status === "completed" ||
-                  run.status === "failed" ||
-                  run.status === "suspended")
-              ) {
+              if (segmentFinished) {
                 // Drain remaining events
                 if (index < events.length) {
                   return { value: events[index++], done: false };

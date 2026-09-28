@@ -34,10 +34,10 @@ export function buildGraph(
   }
 
   // Compile with checkpointer
-  const checkpointer =
-    options.checkpointer === "sqlite"
-      ? new MemorySaver() // TODO: switch to SqliteSaver when available
-      : new MemorySaver();
+  if (options.checkpointer === "sqlite") {
+    throw new Error("The LangGraph reference provider does not implement SQLite checkpoints. Use memory or install an orchestration provider with durable storage.");
+  }
+  const checkpointer = new MemorySaver();
 
   return graph.compile({ checkpointer });
 }
@@ -50,10 +50,13 @@ function wireEdges(graph: any, ir: Harnessfile) {
   const triggers = stepNames.filter((n) => steps[n].type === "trigger");
 
   if (triggers.length > 0) {
-    // Wire START → each trigger
-    for (const trigger of triggers) {
-      graph.addEdge(START, trigger);
-    }
+    graph.addConditionalEdges(START, (state: any) => {
+      const selected = state._triggerData?.trigger;
+      if (selected && triggers.includes(selected)) return selected;
+      if (selected) throw new Error(`Unknown trigger '${selected}'`);
+      if (triggers.length === 1) return triggers[0];
+      throw new Error("Run input must select a trigger when multiple triggers exist");
+    }, Object.fromEntries(triggers.map((name) => [name, name])));
   } else {
     // No triggers — find natural entry (step that nothing points to)
     const targeted = new Set<string>();

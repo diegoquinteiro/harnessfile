@@ -8,7 +8,7 @@ export interface HarnessProvider {
   displayName: string;
 
   /** Check if this provider can execute the given IR. */
-  validate(ir: Harnessfile): ValidationResult;
+  validate(ir: Harnessfile, options?: ProviderOptions): ValidationResult;
 
   /** Compile the IR into a reusable graph. Called once at startup. */
   compile(
@@ -20,7 +20,7 @@ export interface HarnessProvider {
 export interface ProviderOptions {
   checkpointer?: "memory" | "sqlite";
   workspaceRoot?: string;
-  /** Runtime executor override, primarily for embedded hosts and deterministic tests. */
+  /** The independently composed execution service. Engines must dispatch through this executor. */
   runtimeExecutor?: RuntimeExecutor;
 }
 

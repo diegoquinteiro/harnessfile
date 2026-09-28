@@ -9,6 +9,25 @@
   "properties": {
     "harnessfile": { "const": "0.2", "description": "Spec version." },
     "name": { "type": "string", "minLength": 1 },
+    "orchestration": {
+      "$ref": "#/$defs/serviceBinding",
+      "default": { "provider": "langgraph/v1" },
+      "description": "Graph coordination provider."
+    },
+    "execution": {
+      "$ref": "#/$defs/serviceBinding",
+      "default": { "provider": "local/v1" },
+      "description": "Coding-agent execution environment provider."
+    },
+    "project-management": {
+      "$ref": "#/$defs/serviceBinding",
+      "description": "Task tracking provider. Omission disables task tracking."
+    },
+    "identity": {
+      "$ref": "#/$defs/serviceBinding",
+      "default": { "provider": "local/v1" },
+      "description": "Agent identity and credential resolution provider."
+    },
     "runtimes": {
       "type": "object",
       "description": "Portable coding-agent runtime profiles (D52, D53).",
@@ -46,6 +65,25 @@
           "additionalProperties": true
         }
       ]
+    },
+    "serviceBinding": {
+      "type": "object",
+      "required": ["provider"],
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "oneOf": [
+            { "type": "string", "pattern": "^([a-z0-9-]+/)?[a-z0-9-]+/v[0-9]+$" },
+            {
+              "type": "object",
+              "required": ["type"],
+              "properties": { "type": { "type": "string", "pattern": "^([a-z0-9-]+/)?[a-z0-9-]+/v[0-9]+$" } },
+              "additionalProperties": true
+            }
+          ]
+        }
+      },
+      "patternProperties": { "^x-": {} }
     },
     "next": {
       "oneOf": [

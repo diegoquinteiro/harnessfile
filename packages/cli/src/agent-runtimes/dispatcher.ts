@@ -19,6 +19,8 @@ export interface RuntimeDispatcherOptions {
 export class RuntimeDispatcher implements RuntimeExecutor {
   private workspaceRoot: string;
   private registry: LocalRuntimeRegistry;
+  private sessions = new Set<RuntimeSession>();
+  private closed = false;
 
   constructor(
     private ir: Harnessfile,
@@ -33,6 +35,7 @@ export class RuntimeDispatcher implements RuntimeExecutor {
     prompt: string,
     options: RuntimeExecuteOptions = {},
   ): Promise<RuntimeSession> {
+    if (this.closed) throw new Error("Execution environment is closed");
     const agent = this.ir.agents[agentName];
     if (!agent) throw new Error(`Runtime dispatch references unknown agent '${agentName}'`);
     if (!agent.runtime) {
@@ -68,6 +71,15 @@ export class RuntimeDispatcher implements RuntimeExecutor {
       signal: options.signal,
       env,
     });
+    if (this.closed) {
+      await rawSession.cancel();
+      throw new Error("Execution environment closed during startup");
+    }
+    this.sessions.add(rawSession);
+    void rawSession.result.then(
+      () => this.sessions.delete(rawSession),
+      () => this.sessions.delete(rawSession),
+    );
     let session: RuntimeSession = {
       ...rawSession,
       result: rawSession.result.then((result) => ({
@@ -105,6 +117,17 @@ export class RuntimeDispatcher implements RuntimeExecutor {
       // Drain the structured stream; consumers can observe it through onEvent.
     }
     return session.result;
+  }
+
+  async close(): Promise<void> {
+    this.closed = true;
+    const sessions = [...this.sessions];
+    const outcomes = await Promise.allSettled(sessions.map(async (session) => {
+      await session.cancel();
+      await session.result;
+    }));
+    const errors = outcomes.filter((result) => result.status === "rejected");
+    if (errors.length) throw new AggregateError(errors.map((result) => result.reason), "Runtime cleanup failed");
   }
 }
 

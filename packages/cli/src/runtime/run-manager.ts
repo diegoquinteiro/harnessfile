@@ -4,7 +4,7 @@ import type {
   RunInfo,
   HarnessEvent,
 } from "../providers/interface.js";
-import { logEvent } from "./logger.js";
+import { logEvent, logError } from "./logger.js";
 
 // Manages concurrent runs through the compiled harness.
 // Dispatches trigger events to createRun(), gate approvals to resumeRun().
@@ -47,6 +47,13 @@ export class RunManager {
   }
 
   private streamEvents(handle: RunHandle): void {
+    // Observe completion immediately, even if a plugin's event stream has not ended yet.
+    void handle.result.then((result) => {
+      if (result.status !== "suspended") this.activeHandles.delete(handle.threadId);
+    }, () => {
+      this.activeHandles.delete(handle.threadId);
+      logError(`Run '${handle.threadId}' failed in the orchestration provider`);
+    });
     // Fire-and-forget: consume events and log them
     (async () => {
       try {
@@ -56,12 +63,6 @@ export class RunManager {
       } catch {
         // Stream ended or errored — that's fine
       }
-      // Clean up handle when run is done
-      handle.result.then((result) => {
-        if (result.status !== "suspended") {
-          this.activeHandles.delete(handle.threadId);
-        }
-      });
     })();
   }
 }

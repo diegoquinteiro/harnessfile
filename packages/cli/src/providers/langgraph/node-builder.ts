@@ -7,6 +7,7 @@ import type {
   RuntimeResumePointer,
   RuntimeEvent,
   RuntimeTaskResult,
+  RuntimeExecuteOptions,
 } from "../../agent-runtimes/interface.js";
 import { RuntimeDispatcher } from "../../agent-runtimes/dispatcher.js";
 
@@ -37,11 +38,16 @@ async function executeAgent(
   agentName: string,
   prompt: string,
   onEvent?: (event: RuntimeEvent) => void,
+  options: RuntimeExecuteOptions = {},
 ): Promise<RuntimeTaskResult> {
   const result = await runtime.execute(agentName, prompt, {
+    ...options,
     resume: sessions[agentName],
     onEvent,
   });
+  if (result.status && result.status !== "completed") {
+    throw new Error(`Agent '${agentName}' ${result.status}: ${result.error ?? "execution did not complete"}`);
+  }
   if (result.resume) sessions[agentName] = result.resume;
   return result;
 }
@@ -83,6 +89,19 @@ export function buildNodeFunctions(
   }
 
   return nodes;
+}
+
+function dispatchOptions(state: StateType, runId: string | undefined, step: string, agent: string, turn = "0"): RuntimeExecuteOptions {
+  const parent = state._triggerData?.task as { id?: unknown; url?: unknown } | undefined;
+  return {
+    taskId: runId ? `${runId}:${step}:${agent}:${state._evalIterations?.[step] ?? 0}:${turn}` : undefined,
+    context: {
+      runId, step,
+      parent: parent && typeof parent.id === "string"
+        ? { id: parent.id, ...(typeof parent.url === "string" ? { url: parent.url } : {}) } : undefined,
+      requestedBy: typeof state._triggerData?.requestedBy === "string" ? state._triggerData.requestedBy : undefined,
+    },
+  };
 }
 
 function threadIdOf(config: any): string | undefined {
@@ -172,6 +191,7 @@ function buildRouterNode(
       step.agent!,
       prompt,
       (event) => emitRuntimeEvent(emit, threadId, stepName, step.agent!, event),
+      dispatchOptions(state, threadId, stepName, step.agent!),
     );
     const response = new AIMessage(result.output);
 
@@ -184,7 +204,7 @@ function buildRouterNode(
     return {
       messages: [response],
       _currentStep: stepName,
-      _stepOutputs: { [`${stepName}_route`]: classification },
+      _stepOutputs: { [`${stepName}_route`]: classification, ...resultOutputs(stepName, result) },
       _runtimeSessions: runtimeSessions,
     };
   };
@@ -307,7 +327,8 @@ function buildSquadNode(
     const threadId = threadIdOf(config);
     const transcript = [...state.messages];
     const newMessages: any[] = [];
-    const dispatches: Array<{ member: string; instruction: string }> = [];
+    const dispatches: Array<{ member: string; instruction: string; artifacts?: Record<string, unknown>; task?: RuntimeTaskResult["task"] }> = [];
+    const leaderArtifacts: Record<string, unknown>[] = [];
     let summary: string | undefined;
     const runtimeSessions = { ...state._runtimeSessions };
 
@@ -318,7 +339,10 @@ function buildSquadNode(
         squad.leader,
         [leaderProtocol, "", "# Conversation", renderMessages(transcript)].join("\n"),
         (event) => emitRuntimeEvent(emit, threadId, stepName, squad.leader, event),
+        dispatchOptions(state, threadId, stepName, squad.leader, `leader-${i}`),
       );
+      const artifact = resultArtifacts(leaderResult);
+      if (artifact) leaderArtifacts.push(artifact);
       const content = leaderResult.output;
       const leaderResponse = new AIMessage(content);
 
@@ -396,7 +420,18 @@ function buildSquadNode(
           decision.member!,
           event,
         ),
+        {
+          ...dispatchOptions(state, threadId, stepName, decision.member!, `member-${i}`),
+          context: {
+            ...dispatchOptions(state, threadId, stepName, decision.member!).context,
+            parent: leaderResult.task,
+            requestedBy: squad.leader,
+          },
+        },
       );
+      const dispatch = dispatches[dispatches.length - 1];
+      dispatch.artifacts = resultArtifacts(memberResult);
+      dispatch.task = memberResult.task;
       const memberContent = memberResult.output;
 
       const memberMessage = new AIMessage(
@@ -429,6 +464,7 @@ function buildSquadNode(
       _stepOutputs: {
         [stepName]: summary,
         [`${stepName}_dispatches`]: dispatches,
+        [`${stepName}_artifacts`]: leaderArtifacts,
       },
       _runtimeSessions: runtimeSessions,
     };
@@ -480,6 +516,7 @@ function buildOrchestratorNode(
       step.agent!,
       prompt,
       (event) => emitRuntimeEvent(emit, threadId, stepName, step.agent!, event),
+      dispatchOptions(state, threadId, stepName, step.agent!),
     );
     const response = new AIMessage(result.output);
 
@@ -488,6 +525,7 @@ function buildOrchestratorNode(
       _currentStep: stepName,
       _stepOutputs: {
         [stepName]: typeof response.content === "string" ? response.content : "",
+        ...resultOutputs(stepName, result),
       },
       _runtimeSessions: runtimeSessions,
     };
@@ -536,6 +574,7 @@ function buildAgentNode(
       step.agent!,
       renderMessages(contextMessages),
       (event) => emitRuntimeEvent(emit, threadId, stepName, step.agent!, event),
+      dispatchOptions(state, threadId, stepName, step.agent!),
     );
     const response = new AIMessage(result.output);
 
@@ -544,9 +583,27 @@ function buildAgentNode(
       _currentStep: stepName,
       _stepOutputs: {
         [stepName]: typeof response.content === "string" ? response.content : "",
+        ...resultOutputs(stepName, result),
       },
       _runtimeSessions: runtimeSessions,
     };
+  };
+}
+
+function resultArtifacts(result: RuntimeTaskResult): Record<string, unknown> | undefined {
+  const metadata = result.metadata;
+  if (typeof metadata?.workspacePatch !== "string") return undefined;
+  return {
+    workspacePatch: metadata.workspacePatch,
+    ...(typeof metadata.workspaceBaseCommit === "string" ? { workspaceBaseCommit: metadata.workspaceBaseCommit } : {}),
+  };
+}
+
+function resultOutputs(step: string, result: RuntimeTaskResult): Record<string, unknown> {
+  const artifacts = resultArtifacts(result);
+  return {
+    ...(artifacts ? { [`${step}_artifacts`]: artifacts } : {}),
+    ...(result.task ? { [`${step}_task`]: result.task } : {}),
   };
 }
 

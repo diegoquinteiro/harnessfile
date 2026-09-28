@@ -21,7 +21,8 @@ export class GateResolver {
       this.handleRequest(req, res);
     });
 
-    await new Promise<void>((resolve) => {
+    await new Promise<void>((resolve, reject) => {
+      this.server!.once("error", reject);
       this.server!.listen(port, () => {
         logInfo(`Gate resolver on port ${port}`);
         logInfo(`  POST /gate/:threadId — resume a suspended run`);
@@ -34,7 +35,7 @@ export class GateResolver {
   async stop(): Promise<void> {
     if (this.server) {
       await new Promise<void>((resolve, reject) => {
-        this.server!.close((err) => (err ? reject(err) : resolve()));
+        this.server!.close((err) => (err && (err as NodeJS.ErrnoException).code !== "ERR_SERVER_NOT_RUNNING" ? reject(err) : resolve()));
       });
       this.server = null;
     }

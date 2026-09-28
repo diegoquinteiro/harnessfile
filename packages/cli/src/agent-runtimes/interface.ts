@@ -1,4 +1,5 @@
 import type { AgentDef, RuntimeProfileDef } from "../ir/types.js";
+import type { TaskContext, TaskReference } from "../services/contracts.js";
 
 export type RuntimeStatus =
   | "starting"
@@ -63,6 +64,7 @@ export interface RuntimeTask {
 }
 
 export interface RuntimeTaskResult {
+  task?: TaskReference;
   status: Exclude<RuntimeStatus, "starting" | "running">;
   output: string;
   error?: string;
@@ -97,6 +99,7 @@ export interface AgentRuntimeDriver {
 }
 
 export interface RuntimeExecuteOptions {
+  context?: TaskContext;
   taskId?: string;
   resume?: RuntimeResumePointer;
   timeoutMs?: number;

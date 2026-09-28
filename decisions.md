@@ -158,25 +158,31 @@ Source: Meta-review worktree conversation
 
 Source: Implementation worktree
 
-### D34: Harness provider concept [amended by D52, D53]
+### D34: Harness provider concept [amended by D52, D53, D56]
 **Decision:** A "harness provider" is a runtime execution engine that takes the parsed harnessfile IR and runs it. This is distinct from the spec's runtime providers (slack/v1, jira/v1, etc.) which describe integrations at execution time. First harness provider: LangGraph.
 **Rationale:** Decouples the spec (what the harness is) from the runtime (how it executes). Different teams can use different providers for the same harnessfile.
 **Amended:** D52 separates the harness engine from coding-agent runtimes and reserves "runtime provider" for coding-agent CLI protocols; Slack/Jira-style providers are integrations.
 **Amended:** D53 names the coding-agent wire surface a `protocol` rather than another provider;
 `provider` remains the extension/integration and harness-engine concept.
 
+**Amended:** D56 makes orchestration independently selectable from execution, project management, and identity.
+
 ### D35: CLI follows Docker Compose model
 **Decision:** The CLI uses `up/down/logs/status` commands, not plan/apply. YAML is interpreted at runtime, not compiled to static code. `harnessfile up` starts a persistent server.
 **Rationale:** Docker Compose is the closest UX to what we want — simple, immediate, local-first. Terraform's plan/apply model is better for IaC but too heavy for v0.1.
 
-### D36: v0.1 is local-only
+### D36: v0.1 is local-only [amended by D56]
 **Decision:** Single process execution. The provider interface is designed for future distribution (remote workers, task queues) but that layer is not built yet.
 **Rationale:** Ship fast, iterate. The interfaces are clean enough to add distribution in v0.2 without rewriting.
 
-### D37: LangGraph as runtime engine [amended by D52]
+**Amended:** D56 extends v0.2 to remote coding-agent execution while retaining a single orchestration host.
+
+### D37: LangGraph as runtime engine [amended by D52, D56]
 **Decision:** The LangGraph provider wraps LangGraph's StateGraph as the execution engine, leveraging its checkpointing, streaming, and Pregel engine.
 **Rationale:** LangGraph provides state management, checkpointing, and human-in-the-loop (interrupt/resume) out of the box. Building our own engine would duplicate this work.
 **Amended:** Under D52 LangGraph may remain temporarily as the graph/checkpoint engine, but it MUST NOT instantiate or execute chat models. Agent execution is delegated to coding-agent runtime providers.
+
+**Amended:** D56 retains LangGraph as the default orchestration provider; the host resolves an explicitly selected replacement through the service registry.
 
 ### D38: Persistent server with concurrent runs
 **Decision:** `harnessfile up` starts a long-running server. Triggers listen for events and spawn runs. Multiple runs flow concurrently through the same compiled graph, isolated by thread ID. Gates suspend individual runs via LangGraph's checkpointing, not the whole process.
@@ -222,10 +228,12 @@ Source: Main conversation. Context: the project was stale since 2026-04-11. Deep
 ### D44: Ecosystem posture — own spec, compatible and ambitious
 **Decision:** Publish the Harnessfile spec of the `.agents/` directory as a candidate standard. Adopt **SKILL.md** (Agent Skills) and **AGENTS.md** as-is; specify `agents/*.md` using the Markdown+frontmatter plurality convention (Claude Code / Cursor / Gemini CLI compatible); add `harness.yaml` and `squads/` where no standard exists. Engage the community ".agents Protocol" draft author; aim for AAIF/Linux Foundation alignment later — without waiting for anyone.
 
-### D45: CLI dual mode — sync + headless runtime [amended by D52]
+### D45: CLI dual mode — sync + headless runtime [amended by D52, D56]
 **Decision:** Two modes: (1) **`harnessfile sync`** compiles/pushes the definition to targets (Multica, `.claude/` symlinks, Codex TOML, `.github/agents/`, …) honoring D42 ownership; (2) **`harnessfile up`** runs the headless orchestrator that binds triggers/gates to systems already in production (Jira/Linear/GitHub/Slack via providers) and drives agent runtimes. Extends D35; the LangGraph engine (D37) powers `up`.
 **Rationale:** Sync delivers value immediately and generalizes proven AltaVox tooling; `up` is the "Multica without UI lock-in" differentiator.
 **Amended:** D52 defines "drives agent runtimes" as dispatching tasks to coding-agent CLIs through runtime drivers, never calling model APIs through chat wrappers.
+
+**Amended:** D56 makes the `up` engine selectable and separates execution placement, project management, and identity from sync targets.
 
 ### D46: v0.2 integration targets [amended by D52]
 **Decision:** First wave, all four: (1) **Multica** sync provider; (2) **local code tools** — Claude Code (`.claude/` symlinks), Cursor/Gemini (native `.agents/`), Codex (TOML subagent generation); (3) **GitHub Agent HQ** (`.github/agents/*.md`); (4) **production boards/chat** — Jira, Linear, GitHub, Slack trigger/gate providers for the headless runtime.
@@ -311,6 +319,34 @@ single text response.
 **Impact:** Amends D34 and D52. The reference local target discovers executable instances; Claude Code uses
 bidirectional stream-json and Codex uses app-server JSON-RPC with thread resume and fresh-thread
 fallback. Concrete instance IDs remain operational state and never enter committed agent cards.
+
+---
+
+## Session 9 — Independent service providers (2026-09-27)
+
+Source: Main conversation. The user approved implementation and a pull request for independently
+extensible orchestration, project management, agent runtimes, remote execution, and bot identities.
+D54 and D55 are reserved by concurrent, unpublished work in the primary checkout.
+
+### D56: Compose independently extensible service providers
+**Decision:** A harness MAY select `orchestration`, `execution`, `project-management`, and `identity`
+independently through inline provider bindings. Runtime profiles continue to name coding-agent
+`protocol` families under D53. Defaults are `langgraph/v1` orchestration, `local/v1` execution and
+identity, and no project-management provider. Sync targets remain a separate contract under D42.
+A platform such as Multica MAY implement several provider roles without requiring consumers to use
+them together.
+
+**Rationale:** Task boards, graph engines, coding-agent protocols, execution environments, and bot
+accounts change independently. Selecting GitHub tasks must not force a particular sandbox or engine.
+
+**Impact:** Amends D34, D36, D37, and D45. Providers implement contracts per role and register in a
+registry scoped to one host. Duplicate registrations for the same role and ID fail; the same ID MAY
+serve different roles. The CLI loads executable plugins only when an operator explicitly supplies
+`--plugin`, never from the harness definition. Provider bindings keep D18 and D23's inline reference
+convention, and credentials remain environment-owned under D27. Remote workers run coding-agent
+protocol drivers in provider-managed environments. Delegation retains parent-task and delegating-agent
+identity independently of a board's task representation. Resumption remains subject to D53's instance
+and workspace requirements; ephemeral workers do not promise session resumption or durable coordination.
 
 ---
 

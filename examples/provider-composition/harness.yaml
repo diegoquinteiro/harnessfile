@@ -1,0 +1,24 @@
+harnessfile: "0.2"
+name: provider-composition
+
+orchestration:
+  provider: langgraph/v1
+execution:
+  provider: local/v1
+project-management:
+  provider: memory/v1
+identity:
+  provider: local/v1
+
+runtimes:
+  claude:
+    protocol: claude-code/v1
+
+triggers:
+  hourly-review:
+    schedule: "0 * * * *"
+    prompt: Review the repository and report one concrete maintenance improvement.
+    next: maintain
+steps:
+  maintain:
+    agent: engineer
