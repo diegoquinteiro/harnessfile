@@ -328,7 +328,7 @@ Source: Main conversation. The user approved implementation and a pull request f
 extensible orchestration, project management, agent runtimes, remote execution, and bot identities.
 D54 and D55 are reserved by concurrent, unpublished work in the primary checkout.
 
-### D56: Compose independently extensible service providers
+### D56: Compose independently extensible service providers [amended by D57]
 **Decision:** A harness MAY select `orchestration`, `execution`, `project-management`, and `identity`
 independently through inline provider bindings. Runtime profiles continue to name coding-agent
 `protocol` families under D53. Defaults are `langgraph/v1` orchestration, `local/v1` execution and
@@ -347,6 +347,42 @@ convention, and credentials remain environment-owned under D27. Remote workers r
 protocol drivers in provider-managed environments. Delegation retains parent-task and delegating-agent
 identity independently of a board's task representation. Resumption remains subject to D53's instance
 and workspace requirements; ephemeral workers do not promise session resumption or durable coordination.
+
+**Amended:** D57 adds independent task memory and allows an orchestration provider to advance durable
+work without keeping the coordinating process alive for the whole execution.
+
+---
+
+## Session 10 — Durable task memory and stateless coordination (2026-09-28)
+
+Source: Main conversation. The user approved extending PR #3 with independently selected durable or
+stateless orchestration and task-memory providers, including contextual agent access to task systems.
+
+### D57: Separate durable task memory from orchestration process lifetime
+**Decision:** Add optional `task-memory` as an independently selected service for task checkpoints and
+handoffs. An orchestration provider MAY keep coordination state in its own durable runtime or advance
+work through short-lived invocations with external task memory. `langgraph/v1` remains supported;
+`langgraph-stateless/v1` requires a task-memory provider with durable checkpoint and handoff capabilities
+and an execution provider that supports detached work. The existing `memory` block keeps its meaning.
+
+Task providers MAY supply contextual agent capabilities to read tasks, add comments, and publish
+handoffs. These capabilities are bound for an individual execution by the selected providers. Provider
+URLs, authentication, task identity, and task-specific instructions MUST NOT become permanent
+vendor-specific instructions in portable agent cards.
+
+**Rationale:** A worker can outlive its coordinator process. Recording task progress and handoff data
+outside that process allows a later invocation to reconcile the work. A task board and durable task
+memory may come from the same platform or different providers.
+
+**Impact:** Amends D56. The schema, normalizer, CLI, and editor gain a `task-memory` service binding with
+no default. Provider capability checks reject stateless compositions that cannot persist checkpoints,
+publish handoffs, or run detached tasks. A package MAY register `gitlab/v1` or `github/v1` independently for project
+management and task memory, retaining role-scoped provider IDs. Durable task identity includes provider,
+API endpoint, project or repository, and external issue ID; a bare issue number is not a unique key.
+The editor exposes each service and per-agent account mappings while preserving opaque plugin
+configuration for future extensions. Implementation guarantees for replay,
+concurrency, recovery, and supported graph patterns must be stated explicitly; selecting external task
+memory alone does not establish exactly-once execution.
 
 ---
 

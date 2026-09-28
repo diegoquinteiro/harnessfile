@@ -34,6 +34,7 @@ function validateServices(ir: Harnessfile, errors: ValidationError[]) {
     orchestration: ir.orchestration,
     execution: ir.execution,
     "project-management": ir.projectManagement,
+    "task-memory": ir.taskMemory,
     identity: ir.identity,
   };
   const pattern = /^([a-z0-9-]+\/)?[a-z0-9-]+\/v[0-9]+$/;
@@ -49,6 +50,15 @@ function validateServices(ir: Harnessfile, errors: ValidationError[]) {
       });
     }
   }
+  const engine = ir.orchestration?.provider;
+  const engineId = typeof engine === "string" ? engine : engine?.type;
+  if (engineId === "langgraph-stateless/v1" && !ir.taskMemory) {
+    errors.push({
+      path: "task-memory",
+      message: "The langgraph-stateless/v1 provider requires a task-memory binding with durable checkpoint and handoff capabilities.",
+    });
+  }
+
 }
 
 function validateRuntimes(ir: Harnessfile, errors: ValidationError[]) {

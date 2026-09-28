@@ -45,6 +45,7 @@ export async function validate(
       registry.assertAvailable("execution", harness.ir.execution?.provider ?? "local/v1");
       registry.assertAvailable("identity", harness.ir.identity?.provider ?? "local/v1");
       if (harness.ir.projectManagement) registry.assertAvailable("project-management", harness.ir.projectManagement.provider);
+      if (harness.ir.taskMemory) registry.assertAvailable("task-memory", harness.ir.taskMemory.provider);
       const provider = await registry.create("orchestration", selected, {
         ir: harness.ir, workspaceRoot: harness.root, drivers: registry.runtimeDrivers(),
         async secret() { throw new Error("Validation cannot resolve secrets"); },

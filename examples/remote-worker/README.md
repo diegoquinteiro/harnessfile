@@ -49,3 +49,5 @@ The worker checks out the configured committed Git ref in detached HEAD state. F
 Every task gets a fresh sandbox. A later task sees only commits reachable through its configured ref, unless its prompt explicitly asks it to apply the previous task's returned patch. The worker exports a binary-capable Git patch (up to 4 MiB) and original base commit into result metadata before deleting the sandbox. It does not apply patches to the host, carry workspaces between tasks, or retain resumable sessions. Pushing a branch is necessary when changes must persist as a repository branch.
 
 See [remote execution contracts and limitations](../../packages/cli/src/services/execution/README.md).
+
+For hosts that dispatch a task and exit while its agent continues, see [detached execution and the Modal webhook deployment](STATELESS.md).

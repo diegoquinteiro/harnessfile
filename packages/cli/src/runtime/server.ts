@@ -68,7 +68,14 @@ export class HarnessServer {
             const trigger = event.input.trigger ?? (managedTriggers.length === 1 ? managedTriggers[0] : undefined);
             if (managedTriggers.length > 1 && !trigger) throw new Error("Project event must select a trigger when multiple provider triggers exist");
             if (trigger && !managedTriggers.includes(String(trigger))) throw new Error("Project event selected an unknown provider trigger");
-            await this.runManager!.startRun({ ...event.input, task: event.task, trigger });
+            const input = { ...event.input, eventId: event.id, task: event.task, trigger };
+            const handle = typeof event.input.resumeRunId === "string"
+              ? await this.runManager!.resumeRun(event.input.resumeRunId, input)
+              : await this.runManager!.startRun(input);
+            if (this.services?.orchestrationCapabilities?.eventDriven) {
+              // Acknowledge only after the dispatch intent/checkpoint is durable.
+              await handle.result;
+            }
           });
           deliveries.set(event.id, delivery);
           void delivery.then(() => {

@@ -13,6 +13,7 @@ export function buildGraph(
   ir: Harnessfile,
   options: ProviderOptions,
   emit: EventEmitter = () => {},
+  suppliedCheckpointer?: MemorySaver,
 ) {
   const StateAnnotation = buildStateAnnotation(ir);
   // Use `any` for the graph type because node names are dynamic strings
@@ -37,7 +38,7 @@ export function buildGraph(
   if (options.checkpointer === "sqlite") {
     throw new Error("The LangGraph reference provider does not implement SQLite checkpoints. Use memory or install an orchestration provider with durable storage.");
   }
-  const checkpointer = new MemorySaver();
+  const checkpointer = suppliedCheckpointer ?? new MemorySaver();
 
   return graph.compile({ checkpointer });
 }

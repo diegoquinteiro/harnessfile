@@ -26,6 +26,13 @@ export function Library() {
       </div>
 
       <div className="library__section">
+        <button type="button" className={`library__item${view.kind === 'services' ? ' library__item--active' : ''}`} onClick={() => setView({ kind: 'services' })}>
+          <div className="library__item-name">Services</div>
+          <div className="library__item-desc">Providers, runtimes, accounts, and task memory</div>
+        </button>
+      </div>
+
+      <div className="library__section">
         <div className="library__heading">
           <span className="tag-text">Agents</span>
           <span className="library__count">{agents.length}</span>

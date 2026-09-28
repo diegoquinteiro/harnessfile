@@ -9,11 +9,14 @@ import type {
 import { LocalRuntimeRegistry } from "./registry.js";
 import type { AgentRuntimeDriver } from "./interface.js";
 import { prepareRuntimeEnvironment } from "./environment.js";
+import type { FactoryContext } from "../services/contracts.js";
+import { prepareTaskRuntime } from "../services/execution/task-runtime.js";
 
 export interface RuntimeDispatcherOptions {
   workspaceRoot?: string;
   drivers?: AgentRuntimeDriver[];
   registry?: LocalRuntimeRegistry;
+  context?: FactoryContext;
 }
 
 export class RuntimeDispatcher implements RuntimeExecutor {
@@ -21,6 +24,7 @@ export class RuntimeDispatcher implements RuntimeExecutor {
   private registry: LocalRuntimeRegistry;
   private sessions = new Set<RuntimeSession>();
   private closed = false;
+  private context?: FactoryContext;
 
   constructor(
     private ir: Harnessfile,
@@ -28,6 +32,7 @@ export class RuntimeDispatcher implements RuntimeExecutor {
   ) {
     this.workspaceRoot = options.workspaceRoot ?? process.cwd();
     this.registry = options.registry ?? new LocalRuntimeRegistry({ drivers: options.drivers });
+    this.context = options.context;
   }
 
   async start(
@@ -57,10 +62,15 @@ export class RuntimeDispatcher implements RuntimeExecutor {
       options.resume.workspaceRoot === this.workspaceRoot
     );
     const env = await prepareRuntimeEnvironment(instance, this.workspaceRoot);
-    const rawSession = await driver.start({
+    const capabilities = options.taskScope ? await prepareTaskRuntime(options.taskScope, this.context ?? {
+      ir: this.ir, workspaceRoot: this.workspaceRoot, drivers: [],
+      async secret(name) { const value = process.env[name]; if (!value) throw new Error(`Missing secret '${name}'`); return value; },
+    }, this.context?.plugins) : undefined;
+    let rawSession: RuntimeSession;
+    try { rawSession = await driver.start({
       taskId: options.taskId ?? randomUUID(),
       agentName,
-      agent,
+      agent: capabilities ? { ...agent, instructions: agent.instructions + capabilities.promptSuffix } : agent,
       profileName: agent.runtime,
       profile,
       instance,
@@ -69,8 +79,11 @@ export class RuntimeDispatcher implements RuntimeExecutor {
       resumeSessionId: resumeCompatible ? options.resume?.sessionId : undefined,
       timeoutMs: options.timeoutMs,
       signal: options.signal,
-      env,
-    });
+      env: { ...env, ...capabilities?.env },
+    }); } catch (error) { await capabilities?.cleanup(); throw error; }
+    const cleaned = rawSession.result.finally(() => capabilities?.cleanup());
+    void cleaned.catch(() => {});
+    rawSession = { ...rawSession, result: cleaned };
     if (this.closed) {
       await rawSession.cancel();
       throw new Error("Execution environment closed during startup");

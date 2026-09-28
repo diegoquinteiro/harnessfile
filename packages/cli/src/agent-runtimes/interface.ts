@@ -1,5 +1,6 @@
 import type { AgentDef, RuntimeProfileDef } from "../ir/types.js";
 import type { TaskContext, TaskReference } from "../services/contracts.js";
+import type { TaskRuntimeScope } from "../services/execution/detached.js";
 
 export type RuntimeStatus =
   | "starting"
@@ -99,6 +100,7 @@ export interface AgentRuntimeDriver {
 }
 
 export interface RuntimeExecuteOptions {
+  taskScope?: TaskRuntimeScope;
   context?: TaskContext;
   taskId?: string;
   resume?: RuntimeResumePointer;

@@ -33,7 +33,7 @@ export function string(value: unknown, name: string): string {
 export class JsonApi {
   constructor(readonly provider: string, readonly base: string, private readonly fetcher: HttpFetch = globalThis.fetch) {}
 
-  async request<T>(path: string, credential: string, method = "GET", body?: unknown): Promise<T> {
+  async request<T>(path: string, credential: string, method = "GET", body?: unknown, options: { accept?: string } = {}): Promise<T> {
     if (!credential) throw new Error(`${this.provider} requires an identity credential`);
     let response: Response;
     try {
@@ -44,7 +44,7 @@ export class JsonApi {
         headers: {
           "Content-Type": "application/json",
           ...(this.provider === "GitHub" ? {
-            Accept: "application/vnd.github+json", Authorization: `Bearer ${credential}`,
+            Accept: options.accept ?? "application/vnd.github+json", Authorization: `Bearer ${credential}`,
             "X-GitHub-Api-Version": "2022-11-28",
           } : { "PRIVATE-TOKEN": credential }),
         },

@@ -1,7 +1,8 @@
 import { createHash, createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { GitHubProjectManagement, GitLabProjectManagement } from "../src/services/project-management/index.js";
-import type { ProjectTask, TaskEvent } from "../src/services/contracts.js";
+import type { ProjectTask, TaskEvent, TaskHandoff } from "../src/services/contracts.js";
+import { canonicalTaskKey, handoffNoteMarker } from "../src/services/task-memory/index.js";
 
 const actor = { subject: "worker[bot]", credential: "private-token" };
 const task: ProjectTask = { id: "run-1:step-1", agent: "engineer", prompt: "Implement task", runId: "run-1", step: "step-1", parent: { id: "42", url: "https://github.com/acme/app/issues/42" } };
@@ -24,7 +25,7 @@ describe("GitHub project management", () => {
     const one = new GitHubProjectManagement({ type: "github/v1", repository: "acme/app" }, context, fetcher);
     const two = new GitHubProjectManagement({ type: "github/v1", repository: "acme/app" }, context, fetcher);
     const results = await Promise.all([one.createTask(task, actor), two.createTask(task, actor)]);
-    expect(results).toEqual([{ id: "43", url: "https://github.com/acme/app/issues/43" }, { id: "43", url: "https://github.com/acme/app/issues/43" }]);
+    expect(results).toEqual(Array.from({ length: 2 }, () => ({ id: "43", url: "https://github.com/acme/app/issues/43", key: canonicalTaskKey("github/v1", "https://api.github.com", "acme/app", "43") })));
     expect(issues).toHaveLength(1);
     expect(one.handleWebhook).toBeUndefined();
     expect(one.subscribe).toBeUndefined();
@@ -39,7 +40,7 @@ describe("GitHub project management", () => {
       throw new Error("network failed private-token");
     });
     const service = new GitHubProjectManagement({ type: "github/v1", repository: "acme/app" }, context, fetcher);
-    expect(await service.createTask(task, actor)).toEqual({ id: "7" });
+    expect(await service.createTask(task, actor)).toMatchObject({ id: "7", key: canonicalTaskKey("github/v1", "https://api.github.com", "acme/app", "7") });
     expect(issues).toHaveLength(1);
   });
 
@@ -48,7 +49,7 @@ describe("GitHub project management", () => {
       ? [{ number: 101, body: taskMarker(task.id) }]
       : Array.from({ length: 100 }, (_, i) => ({ number: i + 1, body: "normal issue" }))));
     const service = new GitHubProjectManagement({ type: "github/v1", repository: "acme/app" }, context, fetcher);
-    expect(await service.createTask(task, actor)).toEqual({ id: "101" });
+    expect(await service.createTask(task, actor)).toMatchObject({ id: "101", key: canonicalTaskKey("github/v1", "https://api.github.com", "acme/app", "101") });
     expect(fetcher).toHaveBeenCalledTimes(2);
     const conflict = new GitHubProjectManagement({ type: "github/v1", repository: "acme/app" }, context, async () => response([{ number: 1, body: taskMarker(task.id) }, { number: 2, body: taskMarker(task.id) }]));
     await expect(conflict.createTask(task, actor)).rejects.toThrow("conflicting issues");
@@ -150,12 +151,61 @@ describe("authenticated project-management ingress", () => {
     const headers = { "x-gitlab-event": "Issue Hook", "x-gitlab-event-uuid": "uuid", "x-gitlab-token": "signing-secret" };
     await expect(service.handleWebhook!(raw, { ...headers, "x-gitlab-token": "wrong" })).rejects.toMatchObject({ statusCode: 401 });
     await service.handleWebhook!(raw, headers);
-    expect(receive).toHaveBeenCalledWith(expect.objectContaining({ id: "gitlab/v1:uuid", task: { id: "3", url: "https://gitlab.com/project/-/issues/3" } }));
+    expect(receive).toHaveBeenCalledWith(expect.objectContaining({ id: "gitlab/v1:uuid", task: { id: "3", url: "https://gitlab.com/project/-/issues/3", key: canonicalTaskKey("gitlab/v1", "https://gitlab.com/api/v4", 42, "3") } }));
     await expect(service.handleWebhook!(raw, { ...headers, "x-gitlab-event-uuid": undefined })).rejects.toMatchObject({ statusCode: 400 });
     await service.handleWebhook!(JSON.stringify({ ...payload, project: { id: 43 } }), headers);
     expect(receive).toHaveBeenCalledTimes(1);
     await service.handleWebhook!(JSON.stringify({ ...payload, object_attributes: { ...payload.object_attributes, action: "reopen" } }), { ...headers, "x-gitlab-event-uuid": "reopen" });
     await service.handleWebhook!(JSON.stringify({ ...payload, object_attributes: { ...payload.object_attributes, action: "update" }, changes: { labels: { previous: [], current: [{ title: "harnessfile" }] } } }), { ...headers, "x-gitlab-event-uuid": "labeled" });
     expect(receive).toHaveBeenCalledTimes(3);
+  });
+
+  it("accepts GitHub App handoff wakeups only for the configured agent author and canonical issue", async () => {
+    const service = new GitHubProjectManagement({ type: "github/v1", repository: "acme/app", webhook: { ...webhook, handoffAgents: { engineer: "engineer[bot]" } } }, context);
+    const receive = vi.fn(async () => {});
+    await service.subscribe!(receive);
+    const ref = { id: "9", key: canonicalTaskKey("github/v1", "https://api.github.com", "acme/app", "9") };
+    const completion: TaskHandoff = { id: "dispatch-1", dispatchId: "dispatch-1", runId: ref.key, step: "build", agent: "engineer", status: "completed", summary: "Done", createdAt: "2026-01-01T00:00:00Z" };
+    const payload = { action: "created", repository: { full_name: "acme/app" }, sender: { login: "engineer[bot]", type: "Bot" }, issue: { number: 9 }, comment: { body: handoffNoteMarker(ref, completion), user: { login: "engineer[bot]" } } };
+    const deliver = async (value: unknown) => { const raw = JSON.stringify(value); return service.handleWebhook!(raw, { ...signed(raw), "x-github-event": "issue_comment" }); };
+    await deliver(payload);
+    expect(receive).toHaveBeenCalledWith(expect.objectContaining({ task: expect.objectContaining(ref), input: expect.objectContaining({ resumeRunId: ref.key, handoffId: "dispatch-1", handoff: expect.objectContaining({ agent: "engineer" }) }) }));
+    await expect(deliver({ ...payload, sender: { login: "attacker" }, comment: { ...payload.comment, user: { login: "attacker" } } })).rejects.toMatchObject({ statusCode: 403 });
+    await expect(deliver({ ...payload, issue: { number: 10 } })).rejects.toMatchObject({ statusCode: 403 });
+    expect(receive).toHaveBeenCalledTimes(1);
+  });
+
+  it("authenticates GitLab note wakeups and rejects a service account impersonating another mapped agent", async () => {
+    const service = new GitLabProjectManagement({ type: "gitlab/v1", project: 42, webhook: { ...webhook, handoffAgents: { engineer: "engineer-bot", reviewer: "reviewer-bot" } } }, context);
+    const receive = vi.fn(async () => {});
+    await service.subscribe!(receive);
+    const ref = { id: "3", key: canonicalTaskKey("gitlab/v1", "https://gitlab.com/api/v4", 42, "3") };
+    const completion: TaskHandoff = { id: "dispatch-1", dispatchId: "dispatch-1", runId: ref.key, step: "build", agent: "engineer", status: "completed", summary: "Done", createdAt: "2026-01-01T00:00:00Z" };
+    const payload = { object_kind: "note", project: { id: 42 }, user: { id: 10, username: "engineer-bot" }, issue: { iid: 3 }, object_attributes: { noteable_type: "Issue", action: "create", author_id: 10, note: handoffNoteMarker(ref, completion) } };
+    const headers = { "x-gitlab-event": "Note Hook", "x-gitlab-event-uuid": "note-uuid", "x-gitlab-token": "signing-secret" };
+    await service.handleWebhook!(JSON.stringify(payload), headers);
+    expect(receive).toHaveBeenCalledWith(expect.objectContaining({ input: expect.objectContaining({ resumeRunId: ref.key, handoffId: "dispatch-1" }) }));
+    await expect(service.handleWebhook!(JSON.stringify({ ...payload, user: { id: 10, username: "reviewer-bot" } }), headers)).rejects.toMatchObject({ statusCode: 403 });
+    await expect(service.handleWebhook!(JSON.stringify(payload), { ...headers, "x-gitlab-token": "wrong" })).rejects.toMatchObject({ statusCode: 401 });
+    expect(receive).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("agent task context", () => {
+  it("reads GitHub issue context and all comments with a canonical task key", async () => {
+    const service = new GitHubProjectManagement({ type: "github/v1", repository: "acme/app" }, context, async (url) => {
+      if (!String(url).includes("/comments")) return response({ number: 7, title: "Existing issue", body: "Description" });
+      return response(String(url).includes("page=2") ? [{ id: 101, body: "Final context", user: { login: "reviewer[bot]" } }] : Array.from({ length: 100 }, (_, i) => ({ id: i + 1, body: "Earlier context", user: { login: "engineer[bot]" } })));
+    });
+    const result = await service.readTask({ id: "7" }, actor);
+    expect(result.task.key).toBe(canonicalTaskKey("github/v1", "https://api.github.com", "acme/app", "7"));
+    expect(result.comments).toHaveLength(101);
+    expect(result.comments[100]).toMatchObject({ body: "Final context", subject: "reviewer[bot]" });
+    await expect(service.readTask({ id: "7", key: canonicalTaskKey("github/v1", "https://api.github.com", "other/project", "7") }, actor)).rejects.toThrow("does not belong");
+  });
+
+  it("reads GitLab issue descriptions and service account notes", async () => {
+    const service = new GitLabProjectManagement({ type: "gitlab/v1", project: 42 }, context, async (url) => response(String(url).includes("/notes") ? [{ id: 1, body: "Shared knowledge", author: { username: "engineer-bot" } }] : { iid: 7, title: "Existing issue", description: "Requirements" }));
+    expect(await service.readTask({ id: "7" }, actor)).toMatchObject({ title: "Existing issue", body: "Requirements", task: { key: canonicalTaskKey("gitlab/v1", "https://gitlab.com/api/v4", 42, "7") }, comments: [{ id: "1", body: "Shared knowledge", subject: "engineer-bot" }] });
   });
 });

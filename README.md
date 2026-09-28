@@ -2,7 +2,7 @@
 
 An open, vendor-neutral specification for AI agent **harnesses** — the operational scaffolding around agents (triggers, gates, squads, routing, evals, hooks, memory, observability, security), not the agent definition itself.
 
-> **Status:** v0.2 draft — a pivot from a single YAML file to the `.agents/` directory. See [`spec/v0.2-draft.md`](./spec/v0.2-draft.md) and decisions D39–D56 in [`decisions.md`](./decisions.md).
+> **Status:** v0.2 draft — a pivot from a single YAML file to the `.agents/` directory. See [`spec/v0.2-draft.md`](./spec/v0.2-draft.md) and decisions D39–D57 in [`decisions.md`](./decisions.md).
 
 ## Why a harness spec?
 
@@ -60,7 +60,7 @@ You triage Sentry issues. Deduplicate by issue id, ignore noise, file genuine bu
 - **Squads are agent-compatible.** A squad (leader + members + orchestration instructions) can be used anywhere an agent can. Explicit graphs and leader-orchestration coexist.
 - **Coding-agent CLIs are runtimes.** The harness engine owns the graph; Claude Code, Codex, and other runtime protocols supply terminal, files, sandbox, MCP, skills, and sessions through target-resolved instances. Harnessfile never reduces them to chat-model API calls.
 - **Definition is portable; operations belong to the environment.** Targets declare which fields they `own`; sync seeds them at bootstrap and never overwrites them. Secrets are never in the repo.
-- **Independent providers.** Select orchestration, execution, project management, and identity separately. Runtime profiles retain their coding-agent protocol; sync targets retain their ownership rules. Explicit plugins can add service providers, runtime drivers, and sync adapters.
+- **Independent providers.** Select orchestration, execution, project management, identity, and task memory separately. Runtime profiles retain their coding-agent protocol; sync targets retain their ownership rules. Explicit plugins can add service providers, runtime drivers, and sync adapters.
 - **Defaults over config, progressive disclosure.**
 
 ## Compose services
@@ -72,7 +72,8 @@ project-management: { provider: memory/v1 }
 identity: { provider: local/v1 }
 ```
 
-All four bindings are optional. Defaults use LangGraph and local execution/identity, with task tracking
+These four bindings are optional. A fifth binding, `task-memory`, selects task checkpoint and handoff
+storage independently of the task board. Defaults use LangGraph and local execution/identity, with task tracking
 disabled. The reference adapters support GitHub issues with GitHub App identities, GitLab issues with
 service-account identities, and optional Modal, Daytona, or E2B execution environments. Remote execution
 requires an installed SDK and a prepared worker image. The default orchestration checkpoints and local
@@ -81,6 +82,13 @@ task board are in memory.
 See the [provider guide and implementation plan](./docs/provider-composition-plan.md) for credentials,
 webhooks, remote workers, plugin registration, and current limitations. The
 [composition example](./examples/provider-composition/) runs locally without a cloud account.
+
+D57 adds `langgraph-stateless/v1` for event-driven coordination with durable task memory and detached
+execution. `langgraph/v1` remains available. See the [stateless provider guide](./docs/stateless-orchestration-plan.md),
+[GitHub example](./examples/stateless-github/), and [GitLab example](./examples/stateless-gitlab/).
+The editor's **Services** view configures these providers, runtime profiles, and per-agent account mappings.
+The optional [Modal host](./examples/remote-worker/STATELESS.md) deploys webhook delivery and scheduled
+reconciliation without keeping a coordinator running between events.
 
 ## Repository layout
 

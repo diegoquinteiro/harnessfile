@@ -116,6 +116,7 @@ export function normalize(raw: Record<string, unknown>): Harnessfile {
     orchestration: normalizeService(raw, "orchestration", "langgraph/v1"),
     execution: normalizeService(raw, "execution", "local/v1"),
     projectManagement: normalizeService(raw, "project-management"),
+    taskMemory: normalizeService(raw, "task-memory"),
     identity: normalizeService(raw, "identity", "local/v1"),
     agents,
     squads,

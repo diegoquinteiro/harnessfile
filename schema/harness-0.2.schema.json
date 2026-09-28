@@ -23,6 +23,10 @@
       "$ref": "#/$defs/serviceBinding",
       "description": "Task tracking provider. Omission disables task tracking."
     },
+    "task-memory": {
+      "$ref": "#/$defs/serviceBinding",
+      "description": "Optional task checkpoints and handoff provider, independent of legacy memory. Required by langgraph-stateless/v1."
+    },
     "identity": {
       "$ref": "#/$defs/serviceBinding",
       "default": { "provider": "local/v1" },
@@ -53,6 +57,27 @@
     "resilience": { "$ref": "#/$defs/resilience" },
     "hooks": { "$ref": "#/$defs/hooks" }
   },
+  "allOf": [
+    {
+      "if": {
+        "required": ["orchestration"],
+        "properties": {
+          "orchestration": {
+            "required": ["provider"],
+            "properties": {
+              "provider": {
+                "anyOf": [
+                  { "const": "langgraph-stateless/v1" },
+                  { "type": "object", "required": ["type"], "properties": { "type": { "const": "langgraph-stateless/v1" } } }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "then": { "required": ["task-memory"] }
+    }
+  ],
   "$defs": {
     "provider": {
       "oneOf": [

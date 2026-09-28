@@ -1,11 +1,13 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import type { ProviderRef } from "../../ir/types.js";
-import type { ActorIdentity, ProjectManagementService, ProjectTask, ProviderRegistrar, ServiceContext, TaskEvent, TaskReference, TaskUpdate } from "../contracts.js";
+import type { ActorIdentity, ProjectManagementService, ProjectTask, ProviderRegistrar, ServiceContext, TaskConversation, TaskEvent, TaskReference, TaskUpdate } from "../contracts.js";
 import { apiUrl, JsonApi, object, string, type HttpFetch } from "./http.js";
+import { canonicalTaskKey } from "../task-memory/key.js";
+import { parseHandoffNote } from "../task-memory/handoff-note.js";
 
-interface Issue { number?: number; iid?: number; body?: string; description?: string; html_url?: string; web_url?: string; pull_request?: unknown }
-interface Note { body?: string }
-interface WebhookConfig { secret: string; taskLabel: string; agent: string; ignoreSubjects: string[] }
+interface Issue { number?: number; iid?: number; title?: string; body?: string; description?: string; html_url?: string; web_url?: string; pull_request?: unknown }
+interface Note { id?: number; body?: string; user?: { login?: string }; author?: { username?: string }; created_at?: string }
+interface WebhookConfig { secret: string; taskLabel: string; agent: string; ignoreSubjects: string[]; handoffAgents: Record<string, string> }
 type Headers = Record<string, string | undefined>;
 
 const queues = new Map<string, Promise<unknown>>();
@@ -42,9 +44,11 @@ function equal(a: string, b: string): boolean {
 
 /** HTTP integrations deliberately use only the supplied identity; no ambient CLI login. */
 abstract class IssueProjectManagement implements ProjectManagementService {
+  readonly capabilities = { agentTools: true };
   get audience(): string { return this.api.base; }
   protected readonly api: JsonApi;
   protected readonly root: string;
+  private readonly project: string;
   private readonly webhook?: WebhookConfig;
   private readonly receivers = new Set<(event: TaskEvent) => Promise<void>>();
   readonly handleWebhook?: (rawBody: string, headers: Headers) => Promise<void>;
@@ -58,18 +62,23 @@ abstract class IssueProjectManagement implements ProjectManagementService {
       const repository = string(config.repository, "repository");
       if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) throw new Error("GitHub repository must be owner/repo");
       this.root = `/repos/${repository}/issues`;
+      this.project = repository;
     } else {
       const project = config.project;
       if (typeof project !== "number" && typeof project !== "string") throw new Error("GitLab project must be a numeric ID or project path");
       if (typeof project === "number" ? !Number.isSafeInteger(project) || project <= 0 : !project.trim()) throw new Error("GitLab project must be nonempty");
       this.root = `/projects/${encodeURIComponent(String(project))}/issues`;
+      this.project = String(project);
     }
     if (config.webhook !== undefined) {
       const webhook = object(config.webhook, "webhook");
       if (webhook.ignoreSubjects !== undefined && (!Array.isArray(webhook.ignoreSubjects) || !webhook.ignoreSubjects.every((v) => typeof v === "string"))) throw new Error("webhook.ignoreSubjects must be a string array");
+      const handoffAgents = webhook.handoffAgents === undefined ? {} : object(webhook.handoffAgents, "webhook.handoffAgents");
+      for (const subject of Object.values(handoffAgents)) string(subject, "webhook.handoffAgents subject");
       this.webhook = {
         secret: string(webhook.secret, "webhook.secret"), taskLabel: string(webhook.taskLabel, "webhook.taskLabel"),
         agent: string(webhook.agent, "webhook.agent"), ignoreSubjects: webhook.ignoreSubjects as string[] ?? [],
+        handoffAgents: handoffAgents as Record<string, string>,
       };
       this.handleWebhook = this.receiveWebhook.bind(this);
       this.subscribe = async (receive) => {
@@ -82,7 +91,20 @@ abstract class IssueProjectManagement implements ProjectManagementService {
   private reference(issue: Issue): TaskReference {
     const id = this.github ? issue.number : issue.iid;
     if (!Number.isSafeInteger(id) || id! <= 0) throw new Error(`${this.api.provider} returned an invalid issue reference`);
-    return { id: String(id), url: this.github ? issue.html_url : issue.web_url };
+    return { id: String(id), url: this.github ? issue.html_url : issue.web_url, key: canonicalTaskKey(this.providerId, this.api.base, this.project, String(id)) };
+  }
+
+  async readTask(task: TaskReference, actor: ActorIdentity): Promise<TaskConversation> {
+    const token = credential(actor);
+    const path = `${this.root}/${issueId(task)}`;
+    const issue = await this.api.request<Issue>(path, token);
+    const reference = this.reference(issue);
+    if (task.key && task.key !== reference.key) throw new Error("Task reference does not belong to this board");
+    const comments: TaskConversation["comments"] = [];
+    for await (const notes of this.pages<Note>(`${path}/${this.github ? "comments" : "notes"}`, token)) {
+      comments.push(...notes.map((note) => ({ id: String(note.id), body: note.body ?? "", subject: this.github ? note.user?.login : note.author?.username, createdAt: note.created_at })));
+    }
+    return { task: reference, title: issue.title ?? "", body: (this.github ? issue.body : issue.description) ?? "", comments };
   }
 
   private async *pages<T>(path: string, token: string): AsyncGenerator<T[]> {
@@ -166,11 +188,46 @@ abstract class IssueProjectManagement implements ProjectManagementService {
     try { payload = object(JSON.parse(rawBody), "Webhook payload"); }
     catch { throw webhookError("Invalid webhook payload", 400); }
     let event: TaskEvent | undefined;
-    try { event = this.github ? this.githubEvent(payload, normalized, config) : this.gitlabEvent(payload, normalized, config); }
-    catch { throw webhookError("Invalid webhook event", 400); }
+    try { event = this.handoffEvent(payload, normalized, config) ?? (this.github ? this.githubEvent(payload, normalized, config) : this.gitlabEvent(payload, normalized, config)); }
+    catch (error) { if ((error as { statusCode?: number }).statusCode === 403) throw error; throw webhookError("Invalid webhook event", 400); }
     if (!event) return;
     if (this.receivers.size === 0) throw webhookError("Project-management webhook has no subscriber", 503);
     for (const receive of this.receivers) await receive(event);
+  }
+
+  private handoffEvent(payload: Record<string, unknown>, headers: Headers, config: WebhookConfig): TaskEvent | undefined {
+    let text: string, subject: string, task: TaskReference, delivery: string;
+    if (this.github) {
+      if (headers["x-github-event"] !== "issue_comment" || payload.action !== "created") return;
+      const repository = object(payload.repository, "repository");
+      if (`/repos/${repository.full_name}/issues`.toLowerCase() !== this.root.toLowerCase()) return;
+      const comment = object(payload.comment, "comment"), sender = object(payload.sender, "sender");
+      text = string(comment.body, "comment body");
+      if (!parseHandoffNote(text)) return;
+      subject = string(sender.login, "sender login");
+      if (object(comment.user, "comment author").login !== subject) throw webhookError("Handoff author mismatch", 403);
+      const issue = object(payload.issue, "issue");
+      if (issue.pull_request) return;
+      task = this.reference(issue as Issue);
+      delivery = string(headers["x-github-delivery"], "delivery ID");
+    } else {
+      if (headers["x-gitlab-event"] !== "Note Hook" || payload.object_kind !== "note") return;
+      const project = object(payload.project, "project");
+      if (![project.id, project.path_with_namespace].some((id) => `/projects/${encodeURIComponent(String(id))}/issues` === this.root)) return;
+      const note = object(payload.object_attributes, "note"), user = object(payload.user, "user");
+      if (note.noteable_type !== "Issue" || note.action !== "create" || note.system === true) return;
+      text = string(note.note, "note body");
+      if (!parseHandoffNote(text)) return;
+      subject = string(user.username, "note author");
+      if (note.author_id !== undefined && note.author_id !== user.id) throw webhookError("Handoff author mismatch", 403);
+      const issue = object(payload.issue, "issue");
+      task = this.reference({ iid: issue.iid as number, web_url: issue.web_url as string | undefined });
+      delivery = string(headers["x-gitlab-event-uuid"], "event UUID");
+    }
+    const handoff = parseHandoffNote(text)!;
+    if (config.handoffAgents[handoff.agent] !== subject) throw webhookError("Handoff actor is not authorized for this agent", 403);
+    if (handoff.taskKey !== task.key) throw webhookError("Handoff task does not match its issue", 403);
+    return { id: `${this.providerId}:${delivery}`, task, input: { task, resumeRunId: handoff.runId, handoffId: handoff.dispatchId, handoff, requestedBy: subject, projectManagement: { provider: this.providerId } } };
   }
 
   private githubEvent(payload: Record<string, unknown>, headers: Headers, config: WebhookConfig): TaskEvent | undefined {

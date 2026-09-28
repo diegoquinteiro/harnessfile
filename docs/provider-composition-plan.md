@@ -180,8 +180,10 @@ optional `app` name, defaulting to `harnessfile`. Daytona accepts optional `apiU
 settings. `apiKeySecret` overrides the credential variable name for Daytona and E2B; Modal uses
 `tokenIdSecret` and `tokenSecretSecret` for its two credential variable names.
 
-The current remote lifecycle creates a fresh sandbox per task and cleans it up after completion or
-cancellation. Result metadata can carry patch artifacts, but the host does not automatically apply
+Connected remote execution creates a fresh sandbox per task and cleans it up after completion or
+cancellation. Detached Modal execution continues after the coordinator exits and publishes its result
+to durable task memory; see the [stateless guide](./stateless-orchestration-plan.md). Result metadata
+can carry patch artifacts, but the host does not automatically apply
 those patches to another task's checkout. Tasks that depend on code written by an earlier agent need
 an explicit commit/branch handoff or an execution plugin that retains a shared workspace.
 Native session resumption is unsupported for these ephemeral workers. Use an execution

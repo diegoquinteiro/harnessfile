@@ -12,6 +12,7 @@ export type View =
   | { kind: 'graph' }
   | { kind: 'entity'; entity: EntityKind; slug: string }
   | { kind: 'targets' }
+  | { kind: 'services' }
 
 interface HarnessState {
   // virtual file set — paths relative to the .agents/ root

@@ -30,7 +30,7 @@ export function validate(project: ParsedProject): Problem[] {
     problems.push({ severity: 'error', where: 'harness.yaml', message: 'name is required' })
   }
 
-  for (const name of ['orchestration', 'execution', 'project-management', 'identity'] as const) {
+  for (const name of ['orchestration', 'execution', 'project-management', 'task-memory', 'identity'] as const) {
     if (!(name in harness)) continue
     const binding = harness[name]
     if (!binding || typeof binding !== 'object' || Array.isArray(binding)) {
@@ -48,6 +48,12 @@ export function validate(project: ParsedProject): Problem[] {
     if (typeof id !== 'string' || !/^([a-z0-9-]+\/)?[a-z0-9-]+\/v[0-9]+$/.test(id)) {
       problems.push({ severity: 'error', where: `${name}.provider`, message: 'provider must match <name>/v<version> or <vendor>/<name>/v<version>' })
     }
+  }
+
+  const engine = harness.orchestration?.provider
+  const engineId = typeof engine === 'string' ? engine : engine?.type
+  if (engineId === 'langgraph-stateless/v1' && !harness['task-memory']) {
+    problems.push({ severity: 'error', where: 'task-memory', message: 'langgraph-stateless/v1 requires task-memory with durable checkpoint and handoff capabilities' })
   }
 
   const agentSlugs = new Set(agents.map((a) => a.slug))

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { RuntimeExecutor, RuntimeExecuteOptions, RuntimeSession, RuntimeTaskResult } from "../agent-runtimes/interface.js";
-import type { IdentityService, ProjectManagementService, TaskReference, TaskUpdate } from "./contracts.js";
+import type { FactoryContext, IdentityService, ProjectManagementService, TaskReference, TaskUpdate } from "./contracts.js";
 
 /** Projects agent dispatches onto a task board without coupling either engine to that board. */
 export class TaskExecutor implements RuntimeExecutor {
@@ -13,6 +13,7 @@ export class TaskExecutor implements RuntimeExecutor {
     private tasks: ProjectManagementService,
     private identities: IdentityService,
     private audience: string,
+    private context?: FactoryContext,
   ) {}
 
   start(agent: string, prompt: string, options: RuntimeExecuteOptions = {}): Promise<RuntimeSession> {
@@ -45,7 +46,13 @@ export class TaskExecutor implements RuntimeExecutor {
       options.signal?.throwIfAborted();
       await update({ status: "running" });
       if (this.closed) throw new Error("Task executor closed during startup");
-      session = await this.runtime.start(agent, prompt, { ...options, taskId });
+      const taskScope = this.context && (this.tasks.capabilities?.agentTools || this.context.ir.taskMemory) ? {
+        id: taskId, agent, prompt, context: { runId: options.context?.runId ?? taskId, step: options.context?.step ?? "task" },
+        deadlineAt: new Date(Date.now() + (options.timeoutMs ?? 900_000)).toISOString(),
+        delivery: { task, memory: this.context.ir.taskMemory, projectManagement: this.tasks.capabilities?.agentTools ? this.context.ir.projectManagement : undefined, identity: this.context.ir.identity ?? { provider: "local/v1" } },
+      } : undefined;
+      const taskPrompt = `${prompt}\n\nTask reference: ${task.key ?? task.id}${task.url ? ` (${task.url})` : ""}`;
+      session = await this.runtime.start(agent, taskPrompt, { ...options, taskId, taskScope });
     } catch (error) {
       await this.reportFailure(task, agent, error, options.signal?.aborted ? "cancelled" : "failed");
       throw error;

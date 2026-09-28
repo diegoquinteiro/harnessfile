@@ -42,6 +42,21 @@ describe("GitHub App identity", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
+  it("keeps distinct agent Apps and installation token caches separate", async () => {
+    const fetcher = vi.fn(async (url: string | URL | Request) => response({ token: String(url).includes("/456/") ? "engineer-installation-token" : "reviewer-installation-token", expires_at: "2099-01-01T00:00:00Z" }));
+    const secret = vi.fn(async () => pem);
+    const identity = new GitHubAppIdentity({ type: "github-app/v1", agents: {
+      engineer: { ...mapping, subject: "engineer-app[bot]" },
+      reviewer: { appId: 789, installationId: 987, privateKeySecret: "REVIEWER_APP_KEY", subject: "reviewer-app[bot]" },
+    } }, { secret }, fetcher);
+    expect(await identity.resolve("engineer", "https://api.github.com")).toEqual({ subject: "engineer-app[bot]", credential: "engineer-installation-token" });
+    expect(await identity.resolve("reviewer", "https://api.github.com")).toEqual({ subject: "reviewer-app[bot]", credential: "reviewer-installation-token" });
+    await identity.resolve("engineer", "https://api.github.com");
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(secret).toHaveBeenCalledWith("APP_KEY");
+    expect(secret).toHaveBeenCalledWith("REVIEWER_APP_KEY");
+  });
+
   it("does not expose a failed token endpoint's response body or private key", async () => {
     const identity = new GitHubAppIdentity({ type: "github-app/v1", default: mapping }, { secret: async () => pem }, async () => response({ error: "SECRET_ECHO" }, 403));
     await expect(identity.resolve("reviewer", "github/v1")).rejects.toThrow("GitHub request failed (HTTP 403)");

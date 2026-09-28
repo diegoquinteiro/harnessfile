@@ -19,7 +19,7 @@ export class ServiceRegistry implements ProviderRegistrar {
   private adapters = new Map<string, SyncAdapter>();
 
   register<K extends ServiceKind>(kind: K, id: string, factory: ServiceFactory<K>): void {
-    if (!["orchestration", "execution", "project-management", "identity"].includes(kind)) {
+    if (!["orchestration", "execution", "project-management", "identity", "task-memory"].includes(kind)) {
       throw new Error(`Unknown service kind '${kind}'`);
     }
     if (!PROVIDER_ID.test(id)) throw new Error(`Invalid provider ID '${id}'`);

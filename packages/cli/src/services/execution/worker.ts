@@ -8,6 +8,10 @@ import { RuntimeDispatcher } from "../../agent-runtimes/dispatcher.js";
 import { builtinRuntimeDrivers } from "../../agent-runtimes/registry.js";
 import { ServiceRegistry, loadPlugins } from "../registry.js";
 import { encodeMessage, type WorkerRequest, type WorkerMessage } from "./protocol.js";
+import type { RuntimeTaskResult } from "../../agent-runtimes/interface.js";
+import { loadTaskServices, workerFactoryContext } from "./task-services.js";
+import { runDetachedWorker } from "./detached-worker.js";
+import { prepareTaskRuntime } from "./task-runtime.js";
 
 const exec = promisify(execFile);
 
@@ -31,13 +35,23 @@ export async function prepareWorkerWorkspace(request: WorkerRequest): Promise<st
 }
 
 /** Reuses installed runtime drivers; infrastructure SDKs are never needed in the worker. */
-export async function executeWorker(request: WorkerRequest, workspace: string, send: (message: WorkerMessage) => void): Promise<void> {
+export async function executeWorker(request: WorkerRequest, workspace: string, send: (message: WorkerMessage) => void, deferResult = false): Promise<RuntimeTaskResult> {
   const gitOptions = { cwd: workspace, timeout: 10_000, maxBuffer: 4 * 1024 * 1024 };
   const baseCommit = (await exec("git", ["rev-parse", "HEAD"], gitOptions)).stdout.trim();
   const registry = new ServiceRegistry();
   for (const driver of builtinRuntimeDrivers()) registry.registerRuntime(driver);
   await loadPlugins(registry, request.plugins, "/opt/harnessfile");
-  const dispatcher = new RuntimeDispatcher(request.ir, { workspaceRoot: workspace, drivers: registry.runtimeDrivers() });
+  let ir = request.ir;
+  const scope = request.detached ?? request.taskScope;
+  const taskRuntime = scope ? await prepareTaskRuntime(scope, workerFactoryContext(request), request.plugins) : undefined;
+  const previousEnv = Object.fromEntries(Object.keys(taskRuntime?.env ?? {}).map(key => [key, process.env[key]]));
+  if (taskRuntime) {
+    Object.assign(process.env, taskRuntime.env);
+    const agent = ir.agents[request.agentName];
+    ir = { ...ir, agents: { ...ir.agents, [request.agentName]: { ...agent, instructions: agent.instructions + taskRuntime.promptSuffix } } };
+  }
+  try {
+  const dispatcher = new RuntimeDispatcher(ir, { workspaceRoot: workspace, drivers: registry.runtimeDrivers() });
   const result = await dispatcher.execute(request.agentName, request.prompt, {
     taskId: request.taskId, timeoutMs: request.timeoutMs,
     onEvent: event => send({ version: 1, type: "event", event }),
@@ -53,7 +67,12 @@ export async function executeWorker(request: WorkerRequest, workspace: string, s
     result.metadata = { ...result.metadata, workspaceExportFailed: true };
   }
   delete result.resume;
-  send({ version: 1, type: "result", result });
+  if (!deferResult) send({ version: 1, type: "result", result });
+  return result;
+  } finally {
+    for (const [key, value] of Object.entries(previousEnv)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+    await taskRuntime?.cleanup();
+  }
 }
 
 async function main(): Promise<void> {
@@ -65,8 +84,16 @@ async function main(): Promise<void> {
     const request = JSON.parse(await readFile(path, "utf8")) as WorkerRequest;
     await unlink(path);
     if (request.version !== 1 || typeof request.repository !== "string" || !request.ir || !Array.isArray(request.plugins)) throw new Error("Invalid worker request");
-    const workspace = await prepareWorkerWorkspace(request);
-    await executeWorker(request, workspace, send);
+    if (request.detached) {
+      const services = await loadTaskServices(request.detached, workerFactoryContext(request), request.plugins);
+      try {
+        const result = await runDetachedWorker(request, services, { prepare: prepareWorkerWorkspace, execute: (input, workspace) => executeWorker(input, workspace, send, true) });
+        if (result) send({ version: 1, type: "result", result });
+      } finally { await services.close(); }
+    } else {
+      const workspace = await prepareWorkerWorkspace(request);
+      await executeWorker(request, workspace, send);
+    }
   } catch {
     // Child-process and plugin exceptions can embed credentials. Return a safe diagnostic.
     send({ version: 1, type: "result", result: { status: "failed", output: "", error: "Worker failed to prepare the checkout or start the configured runtime. Verify the repository, ref, image, runtime installation, and authentication.", durationMs: Date.now() - startedAt } });

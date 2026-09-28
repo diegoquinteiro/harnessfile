@@ -32,9 +32,11 @@ describe("service binding validation parity", () => {
     expect(ir.execution).toEqual(schema.properties.execution.default);
     expect(ir.identity).toEqual(schema.properties.identity.default);
     expect(ir.projectManagement).toBeUndefined();
+    expect(ir.taskMemory).toBeUndefined();
+    expect(schema.properties["task-memory"].default).toBeUndefined();
     expect(schema.properties["project-management"].default).toBeUndefined();
   });
-  for (const field of ["orchestration", "execution", "project-management", "identity"]) {
+  for (const field of ["orchestration", "execution", "project-management", "task-memory", "identity"]) {
     for (const binding of [
       { provider: "team/service/v2" },
       { provider: { type: "custom/v1", region: "example", accounts: { engineer: "bot" } }, "x-note": [1, 2] },
@@ -60,14 +62,29 @@ describe("service binding validation parity", () => {
       });
     }
   }
+  for (const engine of ["langgraph-stateless/v1", { type: "langgraph-stateless/v1" }]) {
+    it(`requires task-memory for stateless orchestration ${JSON.stringify(engine)}`, () => {
+      const missing = { ...minimal, orchestration: { provider: engine }, memory: { backend: "sqlite/v1" } };
+      expect(schemaValid(missing)).toBe(false);
+      expect(cliValid(missing)).toBe(false);
+      expect(uiValid(missing)).toBe(false);
+      const bound = { ...missing, "task-memory": { provider: "team/durable/v1" } };
+      expect(schemaValid(bound), JSON.stringify(schemaValid.errors)).toBe(true);
+      expect(cliValid(bound)).toBe(true);
+      expect(uiValid(bound)).toBe(true);
+      expect(normalize(bound).taskMemory).toEqual(bound["task-memory"]);
+    });
+  }
   it("preserves provider configuration and extensions through normalization and editor serialization", () => {
     const doc = { ...minimal,
       execution: { provider: { type: "daytona/v1", repository: "https://github.com/example/project.git", envSecrets: { TOKEN: "WORKER_TOKEN" } }, "x-policy": { concurrency: 2 } },
       "project-management": { provider: { type: "github/v1", repository: "example/project" } },
+      "task-memory": { provider: { type: "gitlab/v1", project: "example/state" }, "x-retention": "30d" },
     };
     const ir = normalize(doc);
     expect(ir.execution).toEqual(doc.execution);
     expect(ir.projectManagement).toEqual(doc["project-management"]);
+    expect(ir.taskMemory).toEqual(doc["task-memory"]);
     const parsed = parseProject({ "harness.yaml": JSON.stringify(doc), "agents/engineer.md": agent });
     const roundtrip = parseProject({ "harness.yaml": dumpHarness(parsed.harness!), "agents/engineer.md": agent });
     expect(roundtrip.harness).toEqual(doc);

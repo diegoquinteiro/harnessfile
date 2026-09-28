@@ -63,6 +63,7 @@ export interface HarnessDoc {
   orchestration?: ServiceBinding
   execution?: ServiceBinding
   'project-management'?: ServiceBinding
+  'task-memory'?: ServiceBinding
   identity?: ServiceBinding
   harnessfile?: string
   name?: string

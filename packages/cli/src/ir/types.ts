@@ -9,6 +9,7 @@ export interface Harnessfile {
   orchestration?: ServiceBinding;
   execution?: ServiceBinding;
   projectManagement?: ServiceBinding;
+  taskMemory?: ServiceBinding;
   identity?: ServiceBinding;
   runtimes?: Record<string, RuntimeProfileDef>;
   agents: Record<string, AgentDef>;

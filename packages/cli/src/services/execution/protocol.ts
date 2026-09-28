@@ -1,5 +1,6 @@
 import type { Harnessfile } from "../../ir/types.js";
 import type { RuntimeEvent, RuntimeTaskResult } from "../../agent-runtimes/interface.js";
+import type { DetachedTask, TaskRuntimeScope } from "./detached.js";
 
 export interface WorkerRequest {
   version: 1;
@@ -11,6 +12,10 @@ export interface WorkerRequest {
   ref?: string;
   timeoutMs: number;
   plugins: string[];
+  detached?: DetachedTask;
+  taskScope?: TaskRuntimeScope;
+  /** Secret-reference to environment-variable map; contains names only, never values. */
+  secretEnv?: Record<string, string>;
 }
 
 export type WorkerMessage =

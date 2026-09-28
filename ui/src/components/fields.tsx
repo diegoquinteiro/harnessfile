@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useId, type ReactNode } from 'react'
 
 export function TextField(props: {
   label: string
@@ -7,11 +7,15 @@ export function TextField(props: {
   placeholder?: string
   hint?: string
   readOnly?: boolean
+  type?: 'text' | 'number'
 }) {
+  const id = useId()
   return (
     <div className="field">
-      <label className="field__label">{props.label}</label>
+      <label className="field__label" htmlFor={id}>{props.label}</label>
       <input
+        id={id}
+        type={props.type ?? 'text'}
         className="field__input"
         value={props.value}
         placeholder={props.placeholder}
@@ -30,10 +34,12 @@ export function SelectField(props: {
   onChange: (value: string) => void
   allowEmpty?: boolean
 }) {
+  const id = useId()
   return (
     <div className="field">
-      <label className="field__label">{props.label}</label>
+      <label className="field__label" htmlFor={id}>{props.label}</label>
       <select
+        id={id}
         className="field__input"
         value={props.value}
         onChange={(e) => props.onChange(e.target.value)}
@@ -58,10 +64,12 @@ export function TextAreaField(props: {
   className?: string
   hint?: string
 }) {
+  const id = useId()
   return (
     <div className="field field--full">
-      <label className="field__label">{props.label}</label>
+      <label className="field__label" htmlFor={id}>{props.label}</label>
       <textarea
+        id={id}
         className={`textarea${props.className ? ` ${props.className}` : ''}`}
         rows={props.rows ?? 4}
         value={props.value}

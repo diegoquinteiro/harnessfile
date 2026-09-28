@@ -5,6 +5,7 @@ import { Header } from './components/Header'
 import { Inspector } from './components/Inspector'
 import { Library } from './components/Library'
 import { StatusBar } from './components/StatusBar'
+import { ServicesPanel } from './components/ServicesPanel'
 import { TargetsPanel } from './components/TargetsPanel'
 import { useStore } from './store'
 
@@ -28,6 +29,7 @@ export default function App() {
           {view.kind === 'graph' && harness && <GraphView />}
           {view.kind === 'entity' && <EntityEditor entity={view.entity} slug={view.slug} />}
           {view.kind === 'targets' && <TargetsPanel />}
+          {view.kind === 'services' && <ServicesPanel />}
           {view.kind === 'graph' && !harness && (
             <div className="inspector__empty">
               <div className="label--neutral tag-text">No harness loaded</div>

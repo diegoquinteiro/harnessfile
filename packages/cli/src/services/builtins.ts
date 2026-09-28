@@ -1,6 +1,8 @@
 import { builtinRuntimeDrivers } from "../agent-runtimes/registry.js";
 import { RuntimeDispatcher } from "../agent-runtimes/dispatcher.js";
 import { LangGraphProvider } from "../providers/langgraph/index.js";
+import { StatelessLangGraphProvider } from "../providers/langgraph-stateless/index.js";
+import { registerTaskMemoryProviders } from "./task-memory/index.js";
 import { ServiceRegistry } from "./registry.js";
 import { builtinAdapters } from "../sync/engine.js";
 import { registerProjectManagementProviders } from "./project-management/index.js";
@@ -38,10 +40,13 @@ export function createServiceRegistry(): ServiceRegistry {
   registerProjectManagementProviders(registry);
   registerIdentityProviders(registry);
   registerRemoteExecutionProviders(registry);
+  registerTaskMemoryProviders(registry);
   registry.register("orchestration", "langgraph/v1", () => new LangGraphProvider());
+  registry.register("orchestration", "langgraph-stateless/v1", () => new StatelessLangGraphProvider());
   registry.register("execution", "local/v1", (_config, context) => new RuntimeDispatcher(context.ir, {
     workspaceRoot: context.workspaceRoot,
     drivers: context.drivers,
+    context,
   }));
   registry.register("identity", "local/v1", () => ({
     async resolve(agent) { return { subject: agent }; },

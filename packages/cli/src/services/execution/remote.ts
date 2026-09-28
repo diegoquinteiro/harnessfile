@@ -4,6 +4,8 @@ import type { RuntimeExecuteOptions, RuntimeSession, RuntimeTaskResult, RuntimeE
 import { RuntimeSessionController } from "../../agent-runtimes/session.js";
 import type { ExecutionEnvironment, FactoryContext } from "../contracts.js";
 import { WorkerDecoder, shellQuote, type WorkerRequest } from "./protocol.js";
+import { taskSecretEnvironment } from "./task-services.js";
+import type { TaskRuntimeScope } from "./detached.js";
 
 /** SDK-specific adapters own infrastructure only, never coding-agent protocol logic. */
 export interface RemoteSandbox {
@@ -112,14 +114,19 @@ export class RemoteExecutionEnvironment implements ExecutionEnvironment {
         if (options.resume) emit({ type: "warning", content: "Remote sandboxes are ephemeral; starting a new session instead of resuming." });
         const work = async () => {
           const env: Record<string, string> = {};
-          for (const [name, secret] of Object.entries(this.config.envSecrets)) env[name] = await this.context.secret(secret);
+          const secretEnv: Record<string, string> = {};
+          for (const [name, secret] of Object.entries(this.config.envSecrets)) { env[name] = await this.context.secret(secret); secretEnv[secret] = name; }
+          const scope = (options as RuntimeExecuteOptions & { taskScope?: TaskRuntimeScope }).taskScope;
+          const prepared = scope ? await taskSecretEnvironment(scope, this.context) : undefined;
+          if (prepared) { Object.assign(env, prepared.env); Object.assign(secretEnv, prepared.secretEnv); }
           if (stopReason) return;
           const created = await this.connector.create({ env, timeoutMs });
           // Cancellation can win while provisioning; never leak a late sandbox.
           if (stopReason) { await destroy(created); return; }
           sandbox = created;
           const request: WorkerRequest = { version: 1, taskId, ir: this.context.ir, agentName, prompt,
-            repository: this.config.repository, ref: this.config.ref, timeoutMs, plugins: this.config.workerPlugins };
+            repository: this.config.repository, ref: this.config.ref, timeoutMs, plugins: this.config.workerPlugins,
+            taskScope: prepared?.task, secretEnv };
           const requestPath = `/tmp/harnessfile-${randomUUID()}.json`;
           await sandbox.writeFile(requestPath, JSON.stringify(request));
           if (stopReason) return;
