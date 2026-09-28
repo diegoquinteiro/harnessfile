@@ -1,0 +1,9 @@
+{
+  "task": {
+    "id": "42",
+    "key": "task:[\"github/v1\",\"https://api.github.com\",\"example/agent-project\",\"42\"]",
+    "url": "https://github.com/example/agent-project/issues/42"
+  },
+  "prompt": "Implement the requested maintenance change and hand it off for review.",
+  "trigger": "issue-assigned"
+}

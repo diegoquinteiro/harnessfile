@@ -1,0 +1,72 @@
+harnessfile: "0.2"
+name: stateless-github
+
+orchestration:
+  provider: langgraph-stateless/v1
+execution:
+  provider:
+    type: modal/v1
+    repository: https://github.com/example/agent-project.git
+    ref: main
+    image: ghcr.io/example/harnessfile-worker:latest
+    app: harnessfile
+    envSecrets:
+      ANTHROPIC_API_KEY: WORKER_ANTHROPIC_API_KEY
+      HARNESSFILE_GIT_TOKEN: WORKER_GIT_TOKEN
+
+project-management:
+  provider:
+    type: github/v1
+    repository: example/agent-project
+    webhook:
+      secret: GITHUB_WEBHOOK_SECRET
+      taskLabel: harnessfile
+      agent: engineer
+      handoffAgents:
+        engineer: harness-engineer[bot]
+        reviewer: harness-reviewer[bot]
+
+task-memory:
+  provider:
+    type: github/v1
+    repository: example/agent-project
+    stateBranch: harness-state
+    statePath: .harnessfile/tasks
+    identityAgent: orchestrator
+    publishNotes: true
+
+identity:
+  provider:
+    type: github-app/v1
+    default:
+      appId: 100001
+      installationId: 200001
+      privateKeySecret: GITHUB_ORCHESTRATOR_PRIVATE_KEY
+      subject: harness-orchestrator[bot]
+    agents:
+      engineer:
+        appId: 100002
+        installationId: 200002
+        privateKeySecret: GITHUB_ENGINEER_PRIVATE_KEY
+        subject: harness-engineer[bot]
+      reviewer:
+        appId: 100003
+        installationId: 200003
+        privateKeySecret: GITHUB_REVIEWER_PRIVATE_KEY
+        subject: harness-reviewer[bot]
+
+runtimes:
+  claude:
+    protocol: claude-code/v1
+
+triggers:
+  issue-assigned:
+    provider: github/v1
+    event: issue-assigned
+    next: implement
+steps:
+  implement:
+    agent: engineer
+    next: review
+  review:
+    agent: reviewer

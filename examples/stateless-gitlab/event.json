@@ -1,0 +1,9 @@
+{
+  "task": {
+    "id": "42",
+    "key": "task:[\"gitlab/v1\",\"https://gitlab.com/api/v4\",\"example/agent-project\",\"42\"]",
+    "url": "https://gitlab.com/example/agent-project/-/issues/42"
+  },
+  "prompt": "Implement the requested maintenance change and hand it off for review.",
+  "trigger": "issue-assigned"
+}

@@ -1,0 +1,39 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            packages/cli/package-lock.json
+            ui/package-lock.json
+      - run: npm ci
+        working-directory: packages/cli
+      - run: npm ci
+        working-directory: ui
+      - run: npm run build
+        working-directory: packages/cli
+      - run: npm test
+        working-directory: packages/cli
+      - run: |
+          node dist/bin/harnessfile.js validate ../../examples/minimal
+          node dist/bin/harnessfile.js validate ../../examples/altavox
+          node dist/bin/harnessfile.js validate ../../examples/provider-composition
+          node dist/bin/harnessfile.js validate ../../examples/stateless-gitlab
+          node dist/bin/harnessfile.js validate ../../examples/stateless-github
+        working-directory: packages/cli
+      - run: npm run build
+        working-directory: ui
+      - run: npm run lint
+        working-directory: ui
+      - run: python3 -m unittest discover -s examples/remote-worker -p 'test_*.py'

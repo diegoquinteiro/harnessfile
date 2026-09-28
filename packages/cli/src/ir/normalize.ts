@@ -17,6 +17,7 @@ import type {
   ToolRef,
   ProviderRef,
   RuntimeProfileDef,
+  ServiceBinding,
 } from "./types.js";
 
 // Normalizes a raw parsed harness (assembled from the .agents/ directory) into a typed IR.
@@ -112,6 +113,11 @@ export function normalize(raw: Record<string, unknown>): Harnessfile {
     version,
     name,
     runtimes,
+    orchestration: normalizeService(raw, "orchestration", "langgraph/v1"),
+    execution: normalizeService(raw, "execution", "local/v1"),
+    projectManagement: normalizeService(raw, "project-management"),
+    taskMemory: normalizeService(raw, "task-memory"),
+    identity: normalizeService(raw, "identity", "local/v1"),
     agents,
     squads,
     skills,
@@ -131,6 +137,26 @@ export function normalize(raw: Record<string, unknown>): Harnessfile {
       ? normalizeResilience(raw["resilience"] as Record<string, unknown>)
       : undefined,
   };
+}
+
+// ---- Composable service bindings ----
+
+function normalizeService(
+  raw: Record<string, unknown>,
+  key: string,
+  defaultProvider?: string,
+): ServiceBinding | undefined {
+  if (!(key in raw)) return defaultProvider ? { provider: defaultProvider } : undefined;
+  const obj = asObject(raw[key], key);
+  for (const field of Object.keys(obj)) {
+    if (field !== "provider" && !field.startsWith("x-")) {
+      throw new Error(`Unknown field '${key}.${field}'; service bindings accept provider and x- extensions.`);
+    }
+  }
+  const binding: ServiceBinding = { provider: obj["provider"] as string | ProviderRef };
+  const extra = Object.fromEntries(Object.entries(obj).filter(([field]) => field.startsWith("x-")));
+  Object.assign(binding, extra);
+  return binding;
 }
 
 // ---- Agents ----

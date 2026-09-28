@@ -2,7 +2,7 @@
 
 An open, vendor-neutral specification for AI agent **harnesses** — the operational scaffolding around agents (triggers, gates, squads, routing, evals, hooks, memory, observability, security), not the agent definition itself.
 
-> **Status:** v0.2 draft — a pivot from a single YAML file to the `.agents/` directory. See [`spec/v0.2-draft.md`](./spec/v0.2-draft.md) and decisions D39–D52 in [`decisions.md`](./decisions.md).
+> **Status:** v0.2 draft — a pivot from a single YAML file to the `.agents/` directory. See [`spec/v0.2-draft.md`](./spec/v0.2-draft.md) and decisions D39–D57 in [`decisions.md`](./decisions.md).
 
 ## Why a harness spec?
 
@@ -11,7 +11,7 @@ The industry standardized the layers around the harness: **AGENTS.md** won proje
 Harnessfile fills that gap. Define your harness once, as files in your repo, and:
 
 - **`harnessfile sync`** — compile/push the definition to the environments you use: Multica, Claude Code, Cursor, Codex, Gemini CLI, GitHub Agent HQ — honoring each target's ownership of operational config (model, runtime, secrets).
-- **`harnessfile up`** — run the harness headless and dispatch agent tasks to local coding-agent CLIs such as Claude Code and Codex, bound to the systems your team already has in production.
+- **`harnessfile up`** — compose an orchestration engine, local or remote coding-agent execution, optional task tracking, and bot identities. Each provider can be replaced independently.
 
 Design lineage: Terraform (declarative, provider-pluggable), Docker Compose (simple, progressive complexity).
 
@@ -60,8 +60,35 @@ You triage Sentry issues. Deduplicate by issue id, ignore noise, file genuine bu
 - **Squads are agent-compatible.** A squad (leader + members + orchestration instructions) can be used anywhere an agent can. Explicit graphs and leader-orchestration coexist.
 - **Coding-agent CLIs are runtimes.** The harness engine owns the graph; Claude Code, Codex, and other runtime protocols supply terminal, files, sandbox, MCP, skills, and sessions through target-resolved instances. Harnessfile never reduces them to chat-model API calls.
 - **Definition is portable; operations belong to the environment.** Targets declare which fields they `own`; sync seeds them at bootstrap and never overwrites them. Secrets are never in the repo.
-- **Providers everywhere.** Every component — trigger, gate, eval, memory, observability, target — is provider-backed with standard interfaces.
+- **Independent providers.** Select orchestration, execution, project management, identity, and task memory separately. Runtime profiles retain their coding-agent protocol; sync targets retain their ownership rules. Explicit plugins can add service providers, runtime drivers, and sync adapters.
 - **Defaults over config, progressive disclosure.**
+
+## Compose services
+
+```yaml
+orchestration: { provider: langgraph/v1 }
+execution: { provider: local/v1 }
+project-management: { provider: memory/v1 }
+identity: { provider: local/v1 }
+```
+
+These four bindings are optional. A fifth binding, `task-memory`, selects task checkpoint and handoff
+storage independently of the task board. Defaults use LangGraph and local execution/identity, with task tracking
+disabled. The reference adapters support GitHub issues with GitHub App identities, GitLab issues with
+service-account identities, and optional Modal, Daytona, or E2B execution environments. Remote execution
+requires an installed SDK and a prepared worker image. The default orchestration checkpoints and local
+task board are in memory.
+
+See the [provider guide and implementation plan](./docs/provider-composition-plan.md) for credentials,
+webhooks, remote workers, plugin registration, and current limitations. The
+[composition example](./examples/provider-composition/) runs locally without a cloud account.
+
+D57 adds `langgraph-stateless/v1` for event-driven coordination with durable task memory and detached
+execution. `langgraph/v1` remains available. See the [stateless provider guide](./docs/stateless-orchestration-plan.md),
+[GitHub example](./examples/stateless-github/), and [GitLab example](./examples/stateless-gitlab/).
+The editor's **Services** view configures these providers, runtime profiles, and per-agent account mappings.
+The optional [Modal host](./examples/remote-worker/STATELESS.md) deploys webhook delivery and scheduled
+reconciliation without keeping a coordinator running between events.
 
 ## Repository layout
 
@@ -75,6 +102,7 @@ You triage Sentry issues. Deduplicate by issue id, ignore noise, file genuine bu
 | [`schema/`](./schema/) | JSON Schemas for `harness.yaml` and entity frontmatter |
 | [`examples/minimal`](./examples/minimal/) | The smallest useful harness (two files) |
 | [`examples/altavox`](./examples/altavox/) | **The flagship example** — a real production harness: 9-agent squad, risk×ambiguity routing, Sentry autopilot, 4 targets |
+| [`examples/provider-composition`](./examples/provider-composition/) | Independent service bindings with local execution and an in-memory task board |
 | [`packages/cli`](./packages/cli) | The `harnessfile` CLI: `validate`, `sync` (claude-code · codex · github · multica), `up` (LangGraph coordination + Claude/Codex runtime drivers) |
 | [`ui`](./ui) | Visual editor (React) for the `.agents/` directory, built on the Fermata design system |
 

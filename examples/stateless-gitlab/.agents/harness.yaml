@@ -1,0 +1,67 @@
+harnessfile: "0.2"
+name: stateless-gitlab
+
+orchestration:
+  provider: langgraph-stateless/v1
+execution:
+  provider:
+    type: modal/v1
+    repository: https://gitlab.com/example/agent-project.git
+    ref: main
+    image: ghcr.io/example/harnessfile-worker:latest
+    app: harnessfile
+    envSecrets:
+      ANTHROPIC_API_KEY: WORKER_ANTHROPIC_API_KEY
+      HARNESSFILE_GIT_TOKEN: WORKER_GIT_TOKEN
+      HARNESSFILE_GIT_USERNAME: WORKER_GIT_USERNAME
+
+project-management:
+  provider:
+    type: gitlab/v1
+    project: example/agent-project
+    webhook:
+      secret: GITLAB_WEBHOOK_SECRET
+      taskLabel: harnessfile
+      agent: engineer
+      handoffAgents:
+        engineer: harness-engineer
+        reviewer: harness-reviewer
+
+task-memory:
+  provider:
+    type: gitlab/v1
+    project: example/agent-project
+    stateBranch: harness-state
+    statePath: .harnessfile/tasks
+    identityAgent: orchestrator
+    publishNotes: true
+
+identity:
+  provider:
+    type: gitlab-service-account/v1
+    default:
+      tokenSecret: GITLAB_ORCHESTRATOR_TOKEN
+      subject: harness-orchestrator
+    agents:
+      engineer:
+        tokenSecret: GITLAB_ENGINEER_TOKEN
+        subject: harness-engineer
+      reviewer:
+        tokenSecret: GITLAB_REVIEWER_TOKEN
+        subject: harness-reviewer
+
+runtimes:
+  claude:
+    protocol: claude-code/v1
+
+triggers:
+  issue-assigned:
+    provider: gitlab/v1
+    event: issue-assigned
+    next: implement
+steps:
+  implement:
+    agent: engineer
+    next: review
+  review:
+    agent: reviewer

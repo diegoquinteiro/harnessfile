@@ -600,3 +600,20 @@
   text-transform: inherit;
   padding: 0;
 }
+
+/* Provider forms reuse the editor palette and field treatments. */
+.service-tabs { display: flex; flex-wrap: wrap; gap: var(--space-2); border-bottom: 1px solid var(--border); padding-bottom: var(--space-3); }
+.service-tab { font-family: var(--font-mono); font-size: var(--text-tag); letter-spacing: var(--tracking-tag); text-transform: uppercase; padding: var(--space-2) var(--space-3); border: 1px solid transparent; border-radius: var(--radius-sm); color: var(--fg-3); transition: color var(--transition-fast), background var(--transition-fast); }
+.service-tab:hover { background: var(--accent-ghost); }
+.service-tab--active { color: var(--fg-1); border-color: var(--border-medium); background: var(--bg-surface); }
+.service-mappings, .service-mapping { display: flex; flex-direction: column; gap: var(--space-4); }
+.service-mapping { border-top: 1px solid var(--border); padding-top: var(--space-5); }
+.service-add, .service-actions { display: flex; align-items: end; gap: var(--space-4); }
+.service-add > .field { flex: 1; }
+.service-add > button { margin-bottom: var(--space-3); }
+.service-actions { flex-wrap: wrap; }
+.service-actions button:disabled, .service-add button:disabled { opacity: .5; cursor: default; }
+.service-advanced { border-top: 1px solid var(--border); padding-top: var(--space-4); }
+.service-advanced summary { cursor: pointer; color: var(--fg-3); margin-bottom: var(--space-4); }
+.service-error { color: var(--accent); font-family: var(--font-mono); font-size: var(--text-tag); white-space: pre-wrap; }
+@media (max-width: 800px) { .services .editor__grid { grid-template-columns: 1fr; } .services .editor__card { padding: var(--space-5); } }

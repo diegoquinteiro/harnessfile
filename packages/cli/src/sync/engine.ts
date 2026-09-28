@@ -10,7 +10,7 @@ import { MulticaAdapter } from "./adapters/multica.js";
 // Dry run by default; --apply mutates (D45). Ownership semantics live in
 // ownership.ts and are shared by adapters (D42).
 
-const builtinAdapters: SyncAdapter[] = [
+export const builtinAdapters: SyncAdapter[] = [
   new ClaudeCodeAdapter(),
   new CodexAdapter(),
   new GithubAgentHqAdapter(),

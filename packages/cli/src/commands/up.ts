@@ -7,6 +7,7 @@ export interface UpOptions {
   gatePort?: string;
   watch?: boolean;
   checkpointer?: string;
+  plugin?: string[];
 }
 
 export async function up(file: string | undefined, options: UpOptions): Promise<void> {
@@ -16,6 +17,7 @@ export async function up(file: string | undefined, options: UpOptions): Promise<
     await server.start({
       file,
       provider: options.provider,
+      plugins: options.plugin,
       port: options.port ? parseInt(options.port, 10) : undefined,
       gatePort: options.gatePort ? parseInt(options.gatePort, 10) : undefined,
       watch: options.watch,

@@ -3,6 +3,7 @@ import type { Harnessfile } from "../ir/types.js";
 import type { RunManager } from "./run-manager.js";
 import { cronMatches, minuteKey } from "./cron.js";
 import { logInfo, logError } from "./logger.js";
+import type { ProjectManagementService } from "../services/contracts.js";
 
 // Starts listeners for each trigger step in the harness:
 //   - webhook/provider triggers → HTTP server (POST /trigger/<name>)
@@ -36,6 +37,7 @@ export class TriggerListener {
   constructor(
     private ir: Harnessfile,
     private runManager: RunManager,
+    private integrations: { projectManagement?: ProjectManagementService; managedTriggers?: string[] } = {},
   ) {
     // Collect trigger steps
     if (ir.steps) {
@@ -48,6 +50,7 @@ export class TriggerListener {
             prompt: step.prompt,
           });
         } else {
+          if (integrations.managedTriggers?.includes(name)) continue;
           this.triggers.set(name, {
             event: step.event ?? "webhook",
             filter: step.filter,
@@ -58,7 +61,7 @@ export class TriggerListener {
   }
 
   hasTriggers(): boolean {
-    return this.triggers.size > 0 || this.scheduled.size > 0;
+    return this.triggers.size > 0 || this.scheduled.size > 0 || !!this.integrations.projectManagement?.handleWebhook;
   }
 
   async start(options: TriggerListenerOptions = {}): Promise<void> {
@@ -77,7 +80,7 @@ export class TriggerListener {
       this.startScheduler();
     }
 
-    if (this.triggers.size > 0) {
+    if (this.triggers.size > 0 || this.integrations.projectManagement?.handleWebhook) {
       const port = options.port ?? 8080;
       await this.startHttpServer(port);
     }
@@ -90,7 +93,7 @@ export class TriggerListener {
     }
     if (this.server) {
       await new Promise<void>((resolve, reject) => {
-        this.server!.close((err) => (err ? reject(err) : resolve()));
+        this.server!.close((err) => (err && (err as NodeJS.ErrnoException).code !== "ERR_SERVER_NOT_RUNNING" ? reject(err) : resolve()));
       });
       this.server = null;
     }
@@ -153,7 +156,8 @@ export class TriggerListener {
       this.handleRequest(req, res);
     });
 
-    await new Promise<void>((resolve) => {
+    await new Promise<void>((resolve, reject) => {
+      this.server!.once("error", reject);
       this.server!.listen(port, () => {
         logInfo(`Webhook listener on port ${port}`);
         for (const [name, trigger] of this.triggers) {
@@ -167,6 +171,11 @@ export class TriggerListener {
   private handleRequest(req: IncomingMessage, res: ServerResponse): void {
     const url = new URL(req.url ?? "/", `http://localhost`);
 
+    if (req.method === "POST" && url.pathname === "/providers/project-management/webhook" && this.integrations.projectManagement?.handleWebhook) {
+      void this.handleProjectWebhook(req, res);
+      return;
+    }
+
     if (req.method === "POST" && url.pathname.startsWith("/trigger/")) {
       const triggerName = url.pathname.slice("/trigger/".length);
       this.handleTrigger(triggerName, req, res);
@@ -176,6 +185,30 @@ export class TriggerListener {
     // Gate endpoint is handled by GateResolver, but if it hits here, 404
     res.writeHead(404, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "Not found" }));
+  }
+
+  private async handleProjectWebhook(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    try {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      for await (const chunk of req) {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        size += buffer.length;
+        if (size > 1024 * 1024) {
+          res.writeHead(413).end();
+          return;
+        }
+        chunks.push(buffer);
+      }
+      const headers = Object.fromEntries(Object.entries(req.headers).map(([key, value]) => [key, Array.isArray(value) ? value[0] : value]));
+      await this.integrations.projectManagement!.handleWebhook!(Buffer.concat(chunks).toString("utf8"), headers);
+      res.writeHead(202, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ status: "accepted" }));
+    } catch (error) {
+      const status = (error as { statusCode?: number })?.statusCode;
+      res.writeHead(status === 400 || status === 401 || status === 403 ? status : 500);
+      res.end(JSON.stringify({ error: status && status < 500 ? "Webhook rejected" : "Webhook processing failed" }));
+    }
   }
 
   private handleTrigger(
@@ -200,7 +233,7 @@ export class TriggerListener {
     req.on("end", async () => {
       try {
         const input = body ? JSON.parse(body) : {};
-        const handle = await this.runManager.startRun(input);
+        const handle = await this.runManager.startRun({ ...input, trigger: triggerName });
 
         res.writeHead(202, { "Content-Type": "application/json" });
         res.end(

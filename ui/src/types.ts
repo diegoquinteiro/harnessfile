@@ -54,7 +54,17 @@ export interface RuntimeProfileDef {
   [k: string]: unknown
 }
 
+export interface ServiceBinding {
+  provider: Provider
+  [k: `x-${string}`]: unknown
+}
+
 export interface HarnessDoc {
+  orchestration?: ServiceBinding
+  execution?: ServiceBinding
+  'project-management'?: ServiceBinding
+  'task-memory'?: ServiceBinding
+  identity?: ServiceBinding
   harnessfile?: string
   name?: string
   runtimes?: Record<string, RuntimeProfileDef>

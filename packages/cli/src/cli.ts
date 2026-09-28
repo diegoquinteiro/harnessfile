@@ -3,6 +3,7 @@ import { up } from "./commands/up.js";
 import { validate } from "./commands/validate.js";
 import { status } from "./commands/status.js";
 import { sync } from "./commands/sync.js";
+import { event } from "./commands/event.js";
 
 export function createCli(): Command {
   const program = new Command();
@@ -16,7 +17,8 @@ export function createCli(): Command {
     .command("up")
     .description("Start the harness server")
     .argument("[path]", "Path to the .agents/ directory or the project root (default: cwd)")
-    .option("-p, --provider <name>", "Execution provider", "langgraph")
+    .option("-p, --provider <name>", "Override the orchestration provider")
+    .option("--plugin <module>", "Load a trusted provider package or module (repeatable)", collectPlugin, [])
     .option("--port <port>", "Webhook trigger port", "8080")
     .option("--gate-port <port>", "Gate resolver port", "8081")
     .option("-w, --watch", "Restart on harness changes")
@@ -28,6 +30,7 @@ export function createCli(): Command {
     .description("Validate a harness (.agents/ directory) without executing")
     .argument("[path]", "Path to the .agents/ directory or the project root (default: cwd)")
     .option("-p, --provider <name>", "Check provider compatibility")
+    .option("--plugin <module>", "Load a trusted provider package or module (repeatable)", collectPlugin, [])
     .action(validate);
 
   program
@@ -37,7 +40,18 @@ export function createCli(): Command {
     .requiredOption("-t, --target <name>", "Target name from harness.yaml targets")
     .option("--apply", "Execute the plan (default: dry run)")
     .option("--prune", "Include destructive remote deletions in the plan (default: skip them)")
+    .option("--plugin <module>", "Load a trusted provider package or module (repeatable)", collectPlugin, [])
     .action(sync);
+
+  program
+    .command("event")
+    .description("Process one stateless task event and exit")
+    .argument("[path]", "Path to .agents/ or project root")
+    .requiredOption("--input <file>", "JSON input or authenticated webhook envelope")
+    .option("--webhook", "Verify and dispatch a raw body/headers webhook envelope")
+    .option("--resume <task-key>", "Reconcile or explicitly approve a persisted task run")
+    .option("--plugin <module>", "Load a trusted provider package (repeatable)", collectPlugin, [])
+    .action(event);
 
   program
     .command("status")
@@ -46,4 +60,8 @@ export function createCli(): Command {
     .action(status);
 
   return program;
+}
+
+function collectPlugin(value: string, previous: string[]): string[] {
+  return [...previous, value];
 }

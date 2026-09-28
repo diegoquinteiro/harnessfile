@@ -2,11 +2,14 @@ import { loadHarnessDirectory } from "../parser/directory.js";
 import { validateHarnessfile } from "../validator/validate.js";
 import { runSync, formatSyncResult } from "../sync/engine.js";
 import { logInfo, logWarn, logError } from "../runtime/logger.js";
+import { createServiceRegistry } from "../services/builtins.js";
+import { loadPlugins } from "../services/registry.js";
 
 export interface SyncOptions {
   target?: string;
   apply?: boolean;
   prune?: boolean;
+  plugin?: string[];
 }
 
 export async function sync(
@@ -36,10 +39,13 @@ export async function sync(
     }
 
     const apply = options.apply ?? false;
+    const registry = createServiceRegistry();
+    await loadPlugins(registry, options.plugin ?? [], harness.root);
     const result = await runSync(harness, {
       targetName: options.target,
       apply,
       prune: options.prune ?? false,
+      adapters: registry.syncAdapters(),
     });
 
     const target = harness.ir.targets![options.target];

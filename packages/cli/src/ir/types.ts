@@ -6,6 +6,11 @@
 export interface Harnessfile {
   version: string;
   name?: string;
+  orchestration?: ServiceBinding;
+  execution?: ServiceBinding;
+  projectManagement?: ServiceBinding;
+  taskMemory?: ServiceBinding;
+  identity?: ServiceBinding;
   runtimes?: Record<string, RuntimeProfileDef>;
   agents: Record<string, AgentDef>;
   squads?: Record<string, SquadDef>;
@@ -162,6 +167,12 @@ export interface StepDef {
 export interface ProviderRef {
   type: string;
   [key: string]: unknown;
+}
+
+/** An independently selected service, using the existing inline provider convention. */
+export interface ServiceBinding {
+  provider: string | ProviderRef;
+  [key: `x-${string}`]: unknown;
 }
 
 // ---- Evals ----
